@@ -19,6 +19,17 @@ from reportlab.pdfbase import pdfmetrics
 from reportlab.pdfbase.ttfonts import TTFont
 import re
 
+import os
+def mask(s, keep=4): 
+    return s[:keep] + "..." if s else "(unset)"
+
+print("[ENV] STORAGE_PROVIDER:", os.environ.get("STORAGE_PROVIDER"))
+print("[ENV] S3_BUCKET:", os.environ.get("S3_BUCKET"))
+print("[ENV] S3_ENDPOINT_URL:", os.environ.get("S3_ENDPOINT_URL"))
+print("[ENV] S3_ACCESS_KEY_ID:", mask(os.environ.get("S3_ACCESS_KEY_ID")))
+print("[ENV] S3_SECRET_ACCESS_KEY:", mask(os.environ.get("S3_SECRET_ACCESS_KEY")))
+
+
 def safe_filename(name: str) -> str:
     """
     日本語など非ASCIIは保持しつつ、危険な文字とパス要素だけ除去する。
