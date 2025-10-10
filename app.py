@@ -76,7 +76,7 @@ if USE_R2:
     S3_SECRET_ACCESS_KEY  = os.environ["S3_SECRET_ACCESS_KEY"]
     S3_BUCKET             = os.environ["S3_BUCKET"]
 
-    s3 = boto3.client(
+   s3 = boto3.client(
     "s3",
     endpoint_url=S3_ENDPOINT_URL,
     aws_access_key_id=S3_ACCESS_KEY_ID,
@@ -86,8 +86,8 @@ if USE_R2:
         signature_version="s3v4",
         s3={"addressing_style": "path"}  # ★ R2 は path-style 推奨
     ),
-
-    )
+)
+ 
 
 def r2_upload(fileobj_or_bytes, key, content_type="application/octet-stream"):
     if not USE_R2:
@@ -429,24 +429,24 @@ def make():
             q_pdf = build_pdf(sample, with_answers=False).read()
             a_pdf = build_pdf(sample, with_answers=True ).read()
 
-            if USE_R2:
-                # R2に保存
-                r2_upload(q_pdf, f"generated/{q_name}", "application/pdf")
-                r2_upload(a_pdf, f"generated/{a_name}", "application/pdf")
-                # 署名URLを発行してテンプレに渡す
-                q_url = r2_presign_get(f"generated/{q_name}")
-                a_url = r2_presign_get(f"generated/{a_name}")
-                # 署名URLは /download で生成させる。キー（オブジェクトパス）をクエリで渡す
-return redirect(url_for("download", q=f"generated/{q_name}", a=f"generated/{a_name}"))
+           if USE_R2:
+    # R2に保存
+    q_key = f"generated/{q_name}"
+    a_key = f"generated/{a_name}"
+    r2_upload(q_pdf, q_key, "application/pdf")
+    r2_upload(a_pdf, a_key, "application/pdf")
 
-            else:
-                # ローカル保存（開発用）
-                with open(os.path.join(app.config["UPLOAD_FOLDER"], q_name), "wb") as f:
-                    f.write(q_pdf)
-                with open(os.path.join(app.config["UPLOAD_FOLDER"], a_name), "wb") as f:
-                    f.write(a_pdf)
-                flash("問題と解答PDFを作成しました！")
-                return redirect(url_for("download", q=q_name, a=a_name))
+    # 署名URLは /download で生成する。キーをクエリで渡す
+    return redirect(url_for("download", q=q_key, a=a_key))
+else:
+    # ローカル保存（開発用）
+    with open(os.path.join(app.config["UPLOAD_FOLDER"], q_name), "wb") as f:
+        f.write(q_pdf)
+    with open(os.path.join(app.config["UPLOAD_FOLDER"], a_name), "wb") as f:
+        f.write(a_pdf)
+    flash("問題と解答PDFを作成しました！")
+    return redirect(url_for("download", q=q_name, a=a_name))
+
 
         except Exception as e:
             flash(f"PDFの作成に失敗しました: {e}")
