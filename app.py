@@ -2,7 +2,6 @@ import os
 import io
 import uuid
 import datetime as dt
-# import random  # ← シード機能を外したので不要
 
 from flask import (
     Flask, render_template, request, redirect, url_for, flash,
@@ -353,26 +352,42 @@ def make():
 
     return render_template("make.html", files=files)
 
-# ダウンロード
+from flask import abort, send_file
+from werkzeug.utils import secure_filename
 @app.route("/download")
 def download():
     q = request.args.get("q")
     a = request.args.get("a")
     return render_template("download.html", q=q, a=a)
 
-# 安全なダウンロード（パストラバーサル対策）
-@app.route("/download_file/<path:filename>")
+
+@app.route("/download_file/<filename>")
 def download_file(filename):
+    # ファイル名の正規化（パストラバーサル無効化）
+    filename = secure_filename(filename)
     _, ext = os.path.splitext(filename)
     if ext.lower() not in ALLOWED_DOWNLOAD_EXTENSIONS:
         flash("許可されていないファイル形式です。")
         return redirect(url_for("download"))
 
-    try:
-        return send_from_directory(app.config["UPLOAD_FOLDER"], filename, as_attachment=True)
-    except FileNotFoundError:
+    full_path = os.path.join(app.config["UPLOAD_FOLDER"], filename)
+    if not os.path.isfile(full_path):
         flash("指定されたファイルが存在しません。")
         return redirect(url_for("download"))
+
+    try:
+        # 直接パスを指定して送信（条件付き送信で安定・効率化）
+        return send_file(
+            full_path,
+            as_attachment=True,
+            download_name=filename,
+            conditional=True,   # Range/If-Modified などを処理
+            max_age=0           # キャッシュしない
+        )
+    except Exception as e:
+        app.logger.exception(f"send_file failed for {filename}: {e}")
+        # この時は 500 を返して Render のログにトレースが残ります
+        abort(500)
 
 if __name__ == "__main__":
     app.run(
