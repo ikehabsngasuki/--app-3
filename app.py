@@ -17,6 +17,22 @@ from reportlab.lib import colors
 from reportlab.lib.pagesizes import A4
 from reportlab.pdfbase import pdfmetrics
 from reportlab.pdfbase.ttfonts import TTFont
+import re
+
+def safe_filename(name: str) -> str:
+    """
+    日本語など非ASCIIは保持しつつ、危険な文字とパス要素だけ除去する。
+    """
+    # パストラバーサル無効化（../ や / を除去）
+    name = os.path.basename(name)
+    # ヌルバイト除去
+    name = name.replace("\x00", "")
+    # Windows等で問題になりやすい記号をアンダースコアに
+    # （例）\ / : * ? " < > | を _
+    name = re.sub(r'[\\/:*?"<>|]+', "_", name)
+    # 前後の空白除去
+    return name.strip()
+
 
 # ======================
 # 基本設定
@@ -250,7 +266,7 @@ def upload():
             flash("ファイルが選択されていません。")
             return redirect(url_for("upload"))
 
-        filename = secure_filename(file.filename)
+        filename = safe_filename(file.filename)
         _, ext = os.path.splitext(filename)
         if ext.lower() not in ALLOWED_UPLOAD_EXTENSIONS:
             flash(".xlsx のみアップロード可です。")
@@ -353,7 +369,7 @@ def make():
     return render_template("make.html", files=files)
 
 from flask import abort, send_file
-from werkzeug.utils import secure_filename
+
 @app.route("/download")
 def download():
     q = request.args.get("q")
@@ -364,7 +380,7 @@ def download():
 @app.route("/download_file/<filename>")
 def download_file(filename):
     # ファイル名の正規化（パストラバーサル無効化）
-    filename = secure_filename(filename)
+    filename = safe_filename(filename)
     _, ext = os.path.splitext(filename)
     if ext.lower() not in ALLOWED_DOWNLOAD_EXTENSIONS:
         flash("許可されていないファイル形式です。")
