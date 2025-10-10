@@ -61,6 +61,7 @@ print("[ENV] S3_ACCESS_KEY_ID:", mask(os.environ.get("S3_ACCESS_KEY_ID")))
 print("[ENV] S3_SECRET_ACCESS_KEY:", mask(os.environ.get("S3_SECRET_ACCESS_KEY")))
 
 # ======= R2スイッチ =======
+# ======= R2スイッチ =======
 USE_R2 = os.environ.get("STORAGE_PROVIDER", "").lower() == "r2"
 
 s3 = None
@@ -88,6 +89,8 @@ if USE_R2:
             s3={"addressing_style": "path"}
         ),
     )
+
+
  
 
 def r2_upload(fileobj_or_bytes, key, content_type="application/octet-stream"):
@@ -429,24 +432,26 @@ def make():
             # PDF生成
             q_pdf = build_pdf(sample, with_answers=False).read()
             a_pdf = build_pdf(sample, with_answers=True ).read()
+            if USE_R2:
+                # R2に保存
+                q_key = f"generated/{q_name}"
+                a_key = f"generated/{a_name}"
+                r2_upload(q_pdf, q_key, "application/pdf")
+                r2_upload(a_pdf, a_key, "application/pdf")
 
-           if USE_R2:
-    # R2に保存
-    q_key = f"generated/{q_name}"
-    a_key = f"generated/{a_name}"
-    r2_upload(q_pdf, q_key, "application/pdf")
-    r2_upload(a_pdf, a_key, "application/pdf")
+                # 署名URLは /download で生成する。キーをクエリで渡す
+                return redirect(url_for("download", q=q_key, a=a_key))
+            else:
+                # ローカル保存（開発用）
+                with open(os.path.join(app.config["UPLOAD_FOLDER"], q_name), "wb") as f:
+                    f.write(q_pdf)
+                with open(os.path.join(app.config["UPLOAD_FOLDER"], a_name), "wb") as f:
+                    f.write(a_pdf)
+                flash("問題と解答PDFを作成しました！")
+                return redirect(url_for("download", q=q_name, a=a_name))
 
-    # 署名URLは /download で生成する。キーをクエリで渡す
-    return redirect(url_for("download", q=q_key, a=a_key))
-else:
-    # ローカル保存（開発用）
-    with open(os.path.join(app.config["UPLOAD_FOLDER"], q_name), "wb") as f:
-        f.write(q_pdf)
-    with open(os.path.join(app.config["UPLOAD_FOLDER"], a_name), "wb") as f:
-        f.write(a_pdf)
-    flash("問題と解答PDFを作成しました！")
-    return redirect(url_for("download", q=q_name, a=a_name))
+         
+  
 
 
         except Exception as e:
