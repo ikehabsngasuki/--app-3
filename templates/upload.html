@@ -12,12 +12,39 @@
 
 <h3>アップロード済みファイル</h3>
 {% if files %}
-  <table>
-    <tr><th>ファイル名</th></tr>
+  <!-- 画面内のどこか一度だけ置けばOK。すでに<style>があれば追記でOK -->
+<style>
+  .file-table { width: min(800px, 100%); border-collapse: collapse; }
+  .file-table th, .file-table td { border: 1px solid #ddd; padding: 8px 10px; }
+  /* ← ファイル名セルは折り返して全表示 */
+  .file-table td.filename {
+    white-space: normal;         /* 折り返し許可 */
+    word-break: break-word;      /* 長い単語も折る */
+    overflow-wrap: anywhere;     /* どこでも折ってOK（モダンブラウザ） */
+    max-width: 100%;
+  }
+</style>
+
+<h2>アップロード済みファイル</h2>
+<table class="file-table">
+  <thead>
+    <tr>
+      <!-- 幅固定を外す／100%にする -->
+      <th style="width: 100%;">ファイル名</th>
+    </tr>
+  </thead>
+  <tbody>
     {% for f in files %}
-      <tr><td>{{ f }}</td></tr>
+      <tr>
+        <!-- filename クラスを付与 -->
+        <td class="filename">{{ f }}</td>
+      </tr>
+    {% else %}
+      <tr><td class="filename">（まだありません）</td></tr>
     {% endfor %}
-  </table>
+  </tbody>
+</table>
+
 {% else %}
   <p>まだファイルがありません。</p>
 {% endif %}
