@@ -71,22 +71,23 @@ if USE_R2:
     import boto3
     from botocore.config import Config
 
-    S3_ENDPOINT_URL       = os.environ["S3_ENDPOINT_URL"]
-    S3_ACCESS_KEY_ID      = os.environ["S3_ACCESS_KEY_ID"]
-    S3_SECRET_ACCESS_KEY  = os.environ["S3_SECRET_ACCESS_KEY"]
-    S3_BUCKET             = os.environ["S3_BUCKET"]
+    S3_ENDPOINT_URL = os.environ["S3_ENDPOINT_URL"]
+    S3_ACCESS_KEY_ID = os.environ["S3_ACCESS_KEY_ID"]
+    S3_SECRET_ACCESS_KEY = os.environ["S3_SECRET_ACCESS_KEY"]
+    S3_BUCKET = os.environ["S3_BUCKET"]
 
-   s3 = boto3.client(
-    "s3",
-    endpoint_url=S3_ENDPOINT_URL,
-    aws_access_key_id=S3_ACCESS_KEY_ID,
-    aws_secret_access_key=S3_SECRET_ACCESS_KEY,
-    region_name="auto",
-    config=Config(
-        signature_version="s3v4",
-        s3={"addressing_style": "path"}  # ★ R2 は path-style 推奨
-    ),
-)
+    # R2 は path-style + v4 署名が安定
+    s3 = boto3.client(
+        "s3",
+        endpoint_url=S3_ENDPOINT_URL,
+        aws_access_key_id=S3_ACCESS_KEY_ID,
+        aws_secret_access_key=S3_SECRET_ACCESS_KEY,
+        region_name="auto",
+        config=Config(
+            signature_version="s3v4",
+            s3={"addressing_style": "path"}
+        ),
+    )
  
 
 def r2_upload(fileobj_or_bytes, key, content_type="application/octet-stream"):
