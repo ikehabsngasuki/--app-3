@@ -436,7 +436,9 @@ def make():
                 # 署名URLを発行してテンプレに渡す
                 q_url = r2_presign_get(f"generated/{q_name}")
                 a_url = r2_presign_get(f"generated/{a_name}")
-                return render_template("download.html", q_url=q_url, a_url=a_url)
+                # 署名URLは /download で生成させる。キー（オブジェクトパス）をクエリで渡す
+return redirect(url_for("download", q=f"generated/{q_name}", a=f"generated/{a_name}"))
+
             else:
                 # ローカル保存（開発用）
                 with open(os.path.join(app.config["UPLOAD_FOLDER"], q_name), "wb") as f:
