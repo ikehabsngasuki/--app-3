@@ -2,15 +2,11 @@ import os
 import io
 import uuid
 import datetime as dt
-
 from flask import (
     Flask, render_template, request, redirect, url_for, flash,
-    send_from_directory
+    abort, send_file
 )
-from werkzeug.utils import secure_filename
-
 import pandas as pd
-
 from reportlab.platypus import SimpleDocTemplate, Paragraph, Flowable, Table, TableStyle
 from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
 from reportlab.lib import colors
@@ -18,17 +14,9 @@ from reportlab.lib.pagesizes import A4
 from reportlab.pdfbase import pdfmetrics
 from reportlab.pdfbase.ttfonts import TTFont
 import re
-
 import os
 def mask(s, keep=4): 
     return s[:keep] + "..." if s else "(unset)"
-
-print("[ENV] STORAGE_PROVIDER:", os.environ.get("STORAGE_PROVIDER"))
-print("[ENV] S3_BUCKET:", os.environ.get("S3_BUCKET"))
-print("[ENV] S3_ENDPOINT_URL:", os.environ.get("S3_ENDPOINT_URL"))
-print("[ENV] S3_ACCESS_KEY_ID:", mask(os.environ.get("S3_ACCESS_KEY_ID")))
-print("[ENV] S3_SECRET_ACCESS_KEY:", mask(os.environ.get("S3_SECRET_ACCESS_KEY")))
-
 
 def safe_filename(name: str) -> str:
     """
@@ -62,6 +50,73 @@ app = Flask(__name__, template_folder=TEMPLATE_DIR)
 app.secret_key = os.environ.get("FLASK_SECRET_KEY", "change-me")
 app.config["UPLOAD_FOLDER"] = UPLOAD_FOLDER
 app.config["MAX_CONTENT_LENGTH"] = 16 * 1024 * 1024  # 16MB
+
+# ======= デバッグ表示（任意）=======
+
+
+print("[ENV] STORAGE_PROVIDER:", os.environ.get("STORAGE_PROVIDER"))
+print("[ENV] S3_BUCKET:", os.environ.get("S3_BUCKET"))
+print("[ENV] S3_ENDPOINT_URL:", os.environ.get("S3_ENDPOINT_URL"))
+print("[ENV] S3_ACCESS_KEY_ID:", mask(os.environ.get("S3_ACCESS_KEY_ID")))
+print("[ENV] S3_SECRET_ACCESS_KEY:", mask(os.environ.get("S3_SECRET_ACCESS_KEY")))
+
+# ======= R2スイッチ =======
+USE_R2 = os.environ.get("STORAGE_PROVIDER", "").lower() == "r2"
+
+s3 = None
+S3_BUCKET = None
+PRESIGN_EXPIRES = int(os.getenv("PRESIGN_EXPIRES", "3600"))
+
+if USE_R2:
+    import boto3
+    from botocore.config import Config
+
+    S3_ENDPOINT_URL       = os.environ["S3_ENDPOINT_URL"]
+    S3_ACCESS_KEY_ID      = os.environ["S3_ACCESS_KEY_ID"]
+    S3_SECRET_ACCESS_KEY  = os.environ["S3_SECRET_ACCESS_KEY"]
+    S3_BUCKET             = os.environ["S3_BUCKET"]
+
+    3 = boto3.client(
+    "s3",
+    endpoint_url=S3_ENDPOINT_URL,
+    aws_access_key_id=S3_ACCESS_KEY_ID,
+    aws_secret_access_key=S3_SECRET_ACCESS_KEY,
+    region_name="auto",
+    config=Config(
+        signature_version="s3v4",
+        s3={"addressing_style": "path"}  # ★ R2 は path-style 推奨
+    ),
+
+    )
+
+def r2_upload(fileobj_or_bytes, key, content_type="application/octet-stream"):
+    if not USE_R2:
+        raise RuntimeError("R2 無効です。STORAGE_PROVIDER=r2 を設定してください。")
+    body = fileobj_or_bytes.read() if hasattr(fileobj_or_bytes, "read") else fileobj_or_bytes
+    s3.put_object(Bucket=S3_BUCKET, Key=key, Body=body, ContentType=content_type)
+
+def r2_presign_get(key, expires=PRESIGN_EXPIRES):
+    if not USE_R2:
+        raise RuntimeError("R2 無効です。STORAGE_PROVIDER=r2 を設定してください。")
+    return s3.generate_presigned_url(
+        "get_object",
+        Params={"Bucket": S3_BUCKET, "Key": key},
+        ExpiresIn=expires,
+    )
+
+def r2_list_xlsx(prefix="uploads/"):
+    if not USE_R2:
+        raise RuntimeError("R2 無効です。STORAGE_PROVIDER=r2 を設定してください。")
+    out = []
+    resp = s3.list_objects_v2(Bucket=S3_BUCKET, Prefix=prefix)
+    for obj in resp.get("Contents", []):
+        key = obj["Key"]
+        _, ext = os.path.splitext(key)
+        if ext.lower() == ".xlsx":
+            out.append((key, obj["LastModified"]))
+    out.sort(key=lambda x: x[1], reverse=True)
+    return [os.path.basename(k) for k, _ in out]
+
 
 # ======================
 # フォント（手元の VariableFont を最優先。無ければ既存候補 → Helvetica）
@@ -284,8 +339,14 @@ def upload():
             return redirect(url_for("upload"))
 
         try:
-            save_path = os.path.join(app.config["UPLOAD_FOLDER"], filename)
-            file.save(save_path)
+            if USE_R2:
+                # R2へ保存
+                ct = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+                r2_upload(file, f"uploads/{filename}", ct)
+            else:
+                # ローカル保存（開発用）
+                save_path = os.path.join(app.config["UPLOAD_FOLDER"], filename)
+                file.save(save_path)
         except Exception as e:
             flash(f"アップロードに失敗しました: {e}")
             return redirect(url_for("upload"))
@@ -293,13 +354,16 @@ def upload():
         flash("アップロードが完了しました。")
         return redirect(url_for("upload"))
 
-    files = list_xlsx()
+    # 一覧
+    files = r2_list_xlsx() if USE_R2 else list_xlsx()
     return render_template("upload.html", files=files)
 
-# 問題作成
+
+    
+
 @app.route("/make", methods=["GET", "POST"])
 def make():
-    files = list_xlsx()
+    files = r2_list_xlsx() if USE_R2 else list_xlsx()
 
     if request.method == "POST":
         filename = request.form.get("filename", "")
@@ -311,26 +375,27 @@ def make():
             flash("不正なファイル名です。")
             return redirect(url_for("make"))
 
-        # 整数チェック
         try:
-            start_num = int(start_num)
-            end_num = int(end_num)
-            num_questions = int(num_questions)
+            start_num = int(start_num); end_num = int(end_num); num_questions = int(num_questions)
         except ValueError:
             flash("開始番号・終了番号・出題数は整数で指定してください。")
             return redirect(url_for("make"))
 
         if start_num > end_num:
-            flash("開始番号は終了番号以下にしてください。")
-            return redirect(url_for("make"))
+            flash("開始番号は終了番号以下にしてください。"); return redirect(url_for("make"))
         if num_questions <= 0:
-            flash("出題数は1以上にしてください。")
-            return redirect(url_for("make"))
+            flash("出題数は1以上にしてください。"); return redirect(url_for("make"))
 
-        # Excel読み込み & 必須列チェック
-        path = os.path.join(app.config["UPLOAD_FOLDER"], filename)
+        # Excel読み込み
         try:
-            df = pd.read_excel(path, engine="openpyxl")
+            if USE_R2:
+                # R2からオブジェクトを取得して DataFrame 読み込み
+                obj = s3.get_object(Bucket=S3_BUCKET, Key=f"uploads/{filename}")
+                with io.BytesIO(obj["Body"].read()) as bio:
+                    df = pd.read_excel(bio, engine="openpyxl")
+            else:
+                path = os.path.join(app.config["UPLOAD_FOLDER"], filename)
+                df = pd.read_excel(path, engine="openpyxl")
         except Exception as e:
             flash(f"Excelの読み込みに失敗しました: {e}")
             return redirect(url_for("make"))
@@ -341,51 +406,68 @@ def make():
             flash(f"必要な列がありません: {', '.join(sorted(missing))}")
             return redirect(url_for("make"))
 
-        # number 正規化
         num_series = pd.to_numeric(df["number"], errors="coerce")
         df = df.loc[num_series.notna()].copy()
         if df.empty:
-            flash("number 列に有効な数値がありません。")
-            return redirect(url_for("make"))
+            flash("number 列に有効な数値がありません。"); return redirect(url_for("make"))
         df["number"] = num_series.loc[df.index].astype(int)
 
-        # 範囲抽出
         df_range = df[(df["number"] >= start_num) & (df["number"] <= end_num)]
         if df_range.empty:
-            flash("指定範囲に該当する問題がありません。")
-            return redirect(url_for("make"))
+            flash("指定範囲に該当する問題がありません。"); return redirect(url_for("make"))
 
-        # 毎回ランダム抽出
         n = min(num_questions, len(df_range))
         sample = df_range.sample(n=n).reset_index(drop=True)
 
-        # PDF生成（ユニーク名）
         stamp = dt.datetime.now().strftime("%Y%m%d-%H%M%S")
         uid = uuid.uuid4().hex[:8]
         q_name = f"questions_{stamp}_{uid}.pdf"
         a_name = f"answers_{stamp}_{uid}.pdf"
 
         try:
-            with open(os.path.join(app.config["UPLOAD_FOLDER"], q_name), "wb") as f:
-                f.write(build_pdf(sample, with_answers=False).read())
-            with open(os.path.join(app.config["UPLOAD_FOLDER"], a_name), "wb") as f:
-                f.write(build_pdf(sample, with_answers=True).read())
+            # PDF生成
+            q_pdf = build_pdf(sample, with_answers=False).read()
+            a_pdf = build_pdf(sample, with_answers=True ).read()
+
+            if USE_R2:
+                # R2に保存
+                r2_upload(q_pdf, f"generated/{q_name}", "application/pdf")
+                r2_upload(a_pdf, f"generated/{a_name}", "application/pdf")
+                # 署名URLを発行してテンプレに渡す
+                q_url = r2_presign_get(f"generated/{q_name}")
+                a_url = r2_presign_get(f"generated/{a_name}")
+                return render_template("download.html", q_url=q_url, a_url=a_url)
+            else:
+                # ローカル保存（開発用）
+                with open(os.path.join(app.config["UPLOAD_FOLDER"], q_name), "wb") as f:
+                    f.write(q_pdf)
+                with open(os.path.join(app.config["UPLOAD_FOLDER"], a_name), "wb") as f:
+                    f.write(a_pdf)
+                flash("問題と解答PDFを作成しました！")
+                return redirect(url_for("download", q=q_name, a=a_name))
+
         except Exception as e:
             flash(f"PDFの作成に失敗しました: {e}")
             return redirect(url_for("make"))
 
-        flash("問題と解答PDFを作成しました！")
-        return redirect(url_for("download", q=q_name, a=a_name))
-
     return render_template("make.html", files=files)
 
-from flask import abort, send_file
 
 @app.route("/download")
 def download():
     q = request.args.get("q")
     a = request.args.get("a")
+
+    if USE_R2:
+        q_url = r2_presign_get(q) if q and (q.startswith("generated/") or q.startswith("uploads/")) else None
+        a_url = r2_presign_get(a) if a and (a.startswith("generated/") or a.startswith("uploads/")) else None
+        if q_url or a_url:
+            return render_template("download.html", q_url=q_url, a_url=a_url)
+
+    # ローカル保存時の既存動作
     return render_template("download.html", q=q, a=a)
+
+
 
 
 @app.route("/download_file/<filename>")
