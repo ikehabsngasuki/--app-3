@@ -3,13 +3,23 @@
 {% block content %}
 <h2>ダウンロード</h2>
 
-{% if q or a %}
-  {% if q %}
+{% if q_url or a_url or q or a %}
+
+  {% if q_url %}
+    <p><a href="{{ q_url }}">問題PDFをダウンロード</a></p>
+  {% endif %}
+  {% if a_url %}
+    <p><a href="{{ a_url }}">解答PDFをダウンロード</a></p>
+  {% endif %}
+
+  {# ローカル運用時 #}
+  {% if q and not q_url %}
     <p><a href="{{ url_for('download_file', filename=q) }}">問題PDFをダウンロード</a></p>
   {% endif %}
-  {% if a %}
+  {% if a and not a_url %}
     <p><a href="{{ url_for('download_file', filename=a) }}">解答PDFをダウンロード</a></p>
   {% endif %}
+
 {% else %}
   <p>まだ生成されたPDFがありません。<a href="{{ url_for('make') }}">こちら</a>から作成してください。</p>
 {% endif %}
