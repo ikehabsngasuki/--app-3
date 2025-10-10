@@ -1,0 +1,37 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8" />
+  <title>{% block title %}英単語テストPDF{% endblock %}</title>
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <style>
+    body { font-family: system-ui, -apple-system, "Segoe UI", Roboto, "Noto Sans JP", Arial, sans-serif; padding: 24px; }
+    header a { margin-right: 12px; }
+    .flash { background:#fff3cd; border:1px solid #ffeeba; padding:8px 12px; margin:10px 0; }
+    label { display:block; margin:12px 0 6px; }
+    input, select, button { padding:8px; }
+    table { border-collapse: collapse; }
+    th, td { padding:6px 10px; border:1px solid #ddd; }
+  </style>
+</head>
+<body>
+<header>
+  <a href="{{ url_for('index') }}">トップ</a>
+  <a href="{{ url_for('upload') }}">アップロード</a>
+  <a href="{{ url_for('make') }}">問題作成</a>
+  <a href="{{ url_for('download') }}">ダウンロード</a>
+</header>
+
+{% with messages = get_flashed_messages() %}
+  {% if messages %}
+    {% for m in messages %}
+      <div class="flash">{{ m }}</div>
+    {% endfor %}
+  {% endif %}
+{% endwith %}
+
+<main>
+  {% block content %}{% endblock %}
+</main>
+</body>
+</html>

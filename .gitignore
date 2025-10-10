@@ -1,0 +1,36 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+*.pyc
+
+# Virtual env
+.venv/
+venv/
+env/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Jupyter (もし使っていれば)
+.ipynb_checkpoints/
+
+# Builds
+dist/
+build/
+
+# Local uploads (生成物やユーザーアップロード)
+uploads/*
+!uploads/.gitkeep
+
+# Logs
+*.log
+
+# IDE
+.vscode/
+.idea/
+
+# Cache
+*.cache

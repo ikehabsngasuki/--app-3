@@ -1,0 +1,16 @@
+{% extends "base.html" %}
+{% block title %}ダウンロード | 英単語テストPDF{% endblock %}
+{% block content %}
+<h2>ダウンロード</h2>
+
+{% if q or a %}
+  {% if q %}
+    <p><a href="{{ url_for('download_file', filename=q) }}">問題PDFをダウンロード</a></p>
+  {% endif %}
+  {% if a %}
+    <p><a href="{{ url_for('download_file', filename=a) }}">解答PDFをダウンロード</a></p>
+  {% endif %}
+{% else %}
+  <p>まだ生成されたPDFがありません。<a href="{{ url_for('make') }}">こちら</a>から作成してください。</p>
+{% endif %}
+{% endblock %}

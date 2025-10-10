@@ -1,0 +1,11 @@
+{% extends "base.html" %}
+{% block title %}トップ | 英単語テストPDF{% endblock %}
+{% block content %}
+<h1>英単語テストPDFジェネレーター</h1>
+<p>Excelをアップロード → 出題範囲と件数を指定 → 問題/解答PDFを作成できます。</p>
+<ol>
+  <li><a href="{{ url_for('upload') }}">Excel(.xlsx) をアップロード</a></li>
+  <li><a href="{{ url_for('make') }}">問題の作成</a></li>
+  <li><a href="{{ url_for('download') }}">PDF のダウンロード</a></li>
+</ol>
+{% endblock %}

@@ -1,0 +1,24 @@
+{% extends "base.html" %}
+{% block title %}アップロード | 英単語テストPDF{% endblock %}
+{% block content %}
+<h2>Excel(.xlsx) アップロード</h2>
+<form action="{{ url_for('upload') }}" method="post" enctype="multipart/form-data">
+  <label>ファイルを選択（.xlsx のみ、最大16MB）</label>
+  <input type="file" name="file" accept=".xlsx" required />
+  <div style="margin-top:10px;">
+    <button type="submit">アップロード</button>
+  </div>
+</form>
+
+<h3>アップロード済みファイル</h3>
+{% if files %}
+  <table>
+    <tr><th>ファイル名</th></tr>
+    {% for f in files %}
+      <tr><td>{{ f }}</td></tr>
+    {% endfor %}
+  </table>
+{% else %}
+  <p>まだファイルがありません。</p>
+{% endif %}
+{% endblock %}

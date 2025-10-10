@@ -1,0 +1,30 @@
+{% extends "base.html" %}
+{% block title %}問題作成 | 英単語テストPDF{% endblock %}
+{% block content %}
+<h2>問題作成</h2>
+<form action="{{ url_for('make') }}" method="post">
+  <label>ファイルを選択</label>
+  <select name="filename" required>
+    {% for f in files %}
+      <option value="{{ f }}">{{ f }}</option>
+    {% endfor %}
+  </select>
+
+  <label>開始番号</label>
+  <input type="number" name="start_num" min="1" required />
+
+  <label>終了番号</label>
+  <input type="number" name="end_num" min="1" required />
+
+  <label>出題数</label>
+  <input type="number" name="num_questions" min="1" required />
+
+  <div style="margin-top:10px;">
+    <button type="submit">PDFを作成</button>
+  </div>
+</form>
+
+{% if not files %}
+<p style="margin-top: 16px;">※先に <a href="{{ url_for('upload') }}">アップロード</a> してください。</p>
+{% endif %}
+{% endblock %}
