@@ -76,7 +76,7 @@ if USE_R2:
     S3_SECRET_ACCESS_KEY  = os.environ["S3_SECRET_ACCESS_KEY"]
     S3_BUCKET             = os.environ["S3_BUCKET"]
 
-    3 = boto3.client(
+    s3 = boto3.client(
     "s3",
     endpoint_url=S3_ENDPOINT_URL,
     aws_access_key_id=S3_ACCESS_KEY_ID,
