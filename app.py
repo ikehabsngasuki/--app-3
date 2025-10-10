@@ -465,14 +465,23 @@ def make():
 def download():
     q = request.args.get("q")
     a = request.args.get("a")
+    print("[/download] query:", q, a, "USE_R2:", USE_R2, flush=True)
 
     if USE_R2:
-        q_url = r2_presign_get(q) if q and (q.startswith("generated/") or q.startswith("uploads/")) else None
-        a_url = r2_presign_get(a) if a and (a.startswith("generated/") or a.startswith("uploads/")) else None
-        if q_url or a_url:
+        q_url = a_url = None
+        try:
+            if q and (q.startswith("generated/") or q.startswith("uploads/")):
+                q_url = r2_presign_get(q)
+            if a and (a.startswith("generated/") or a.startswith("uploads/")):
+                a_url = r2_presign_get(a)
+            print("[/download] presigned:", bool(q_url), bool(a_url), flush=True)
             return render_template("download.html", q_url=q_url, a_url=a_url)
+        except Exception as e:
+            print("[/download] presign ERROR:", repr(e), flush=True)
+            # 署名失敗時でも画面は出す（メッセージの手掛かりになる）
+            return render_template("download.html", q=q, a=a)
 
-    # ローカル保存時の既存動作
+    # ローカル運用 fallback
     return render_template("download.html", q=q, a=a)
 
 
