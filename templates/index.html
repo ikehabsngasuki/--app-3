@@ -1,11 +1,51 @@
 {% extends "base.html" %}
 {% block title %}トップ | 英単語テストPDF{% endblock %}
 {% block content %}
-<h1>英単語テストPDFジェネレーター</h1>
-<p>Excelをアップロード → 出題範囲と件数を指定 → 問題/解答PDFを作成できます。</p>
-<ol>
-  <li><a href="{{ url_for('upload') }}">Excel(.xlsx) をアップロード</a></li>
-  <li><a href="{{ url_for('make') }}">問題の作成</a></li>
-  <li><a href="{{ url_for('download') }}">PDF のダウンロード</a></li>
-</ol>
+
+<div class="card">
+  <h1>英単語テストPDFジェネレーター</h1>
+  <p style="margin:.4em 0 0; color:var(--muted);">
+    Excelをアップロード → 出題範囲と件数を指定 → 問題/解答PDFを作成できます。
+  </p>
+</div>
+
+<div class="card" style="display:grid; gap:16px;">
+  <h2>はじめかた</h2>
+  <ol style="margin:0; padding-left:1.1rem; color:#334155;">
+    <li style="margin:.4em 0;">Excel（.xlsx）をアップロード</li>
+    <li style="margin:.4em 0;">出題範囲と件数を入力して問題を作成</li>
+    <li style="margin:.4em 0;">問題PDF / 解答PDFをダウンロード</li>
+  </ol>
+
+  <div style="display:flex; gap:10px; flex-wrap:wrap; margin-top:6px;">
+    <a class="btn btn-primary" href="{{ url_for('upload') }}">① アップロード</a>
+    <a class="btn btn-outline" href="{{ url_for('make') }}">② 問題を作成</a>
+    <a class="btn btn-outline" href="{{ url_for('download') }}">③ ダウンロード</a>
+  </div>
+</div>
+
+<div class="card" style="display:grid; gap:12px;">
+  <h3>Excelのフォーマット</h3>
+  <p class="label-desc" style="margin:0;">
+    1行目にヘッダーとして <strong>number</strong> / <strong>word</strong> / <strong>meaning</strong> を用意してください。
+  </p>
+  <table class="table">
+    <thead>
+      <tr>
+        <th>number</th>
+        <th>word</th>
+        <th>meaning</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td>1</td><td>apple</td><td>りんご</td>
+      </tr>
+      <tr>
+        <td>2</td><td>book</td><td>本</td>
+      </tr>
+    </tbody>
+  </table>
+</div>
+
 {% endblock %}
