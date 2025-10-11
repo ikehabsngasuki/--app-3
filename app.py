@@ -321,7 +321,8 @@ def allowed_download(name: str) -> bool:
 # ======================
 @app.route("/")
 def index():
-    return render_template("index.html")
+    files = r2_list_xlsx() if USE_R2 else list_xlsx()
+    return render_template("index.html", files=files)
 
 # アップロード
 @app.route("/upload", methods=["GET", "POST"])
