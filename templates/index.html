@@ -24,6 +24,28 @@
   </div>
 </div>
 
+<!-- 一覧カード -->
+<div class="card" style="display:grid; gap:12px;">
+  <h3>アップロード済みの単語リスト</h3>
 
+  {% if files %}
+    <table class="table">
+      <thead>
+        <tr>
+          <th>ファイル名</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for f in files %}
+          <tr>
+            <td style="white-space:normal; word-break:break-word; overflow-wrap:anywhere;">{{ f }}</td>
+          </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  {% else %}
+    <p class="label-desc">まだファイルがありません。上のフォームからアップロードしてください。</p>
+  {% endif %}
+</div>
 
 {% endblock %}
