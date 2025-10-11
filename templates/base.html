@@ -4,34 +4,180 @@
   <meta charset="utf-8" />
   <title>{% block title %}英単語テストPDF{% endblock %}</title>
   <meta name="viewport" content="width=device-width,initial-scale=1" />
+
   <style>
-    body { font-family: system-ui, -apple-system, "Segoe UI", Roboto, "Noto Sans JP", Arial, sans-serif; padding: 24px; }
-    header a { margin-right: 12px; }
-    .flash { background:#fff3cd; border:1px solid #ffeeba; padding:8px 12px; margin:10px 0; }
-    label { display:block; margin:12px 0 6px; }
-    input, select, button { padding:8px; }
-    table { border-collapse: collapse; }
-    th, td { padding:6px 10px; border:1px solid #ddd; }
+    :root{
+      --brand:#2a7de1;          /* メインの水色 */
+      --brand-600:#1f6dcb;      /* ホバー用に少し濃い */
+      --ink:#1a1a1a;            /* 文字色 */
+      --muted:#6b7280;          /* 補助テキスト */
+      --bg:#f3f8ff;             /* ページの淡い水色背景 */
+      --card:#ffffff;           /* カード/ヘッダーの白 */
+      --line:#e5effd;           /* うっすら罫線 */
+      --focus: 0 0 0 3px rgba(42,125,225,.25);
+      --radius: 12px;
+      --shadow: 0 6px 20px rgba(42,125,225,.08);
+    }
+
+    /* ベース */
+    *{ box-sizing:border-box; }
+    html,body{ height:100%; }
+    body{
+      margin:0;
+      background:var(--bg);
+      color:var(--ink);
+      font-family: system-ui, -apple-system, "Segoe UI", Roboto, "Noto Sans JP", Arial, sans-serif;
+      -webkit-font-smoothing: antialiased;
+      -moz-osx-font-smoothing: grayscale;
+    }
+
+    /* ヘッダー（白 × うっすら下線） */
+    header.nav{
+      position:sticky; top:0; z-index:10;
+      background:var(--card);
+      border-bottom:1px solid var(--line);
+      box-shadow: 0 2px 10px rgba(0,0,0,.02);
+    }
+    .nav-inner{
+      max-width: 960px;
+      margin: 0 auto;
+      padding: 14px 20px;
+      display:flex; align-items:center; gap:18px;
+    }
+    .brand{
+      font-weight:700; letter-spacing:.02em;
+      color:var(--brand); text-decoration:none;
+    }
+    .space{ flex:1; }
+    .nav a{
+      color:var(--ink); text-decoration:none;
+      padding:8px 10px; border-radius:8px;
+    }
+    .nav a:hover{ background: #eef5ff; }
+    .nav .active{ color:var(--brand); }
+
+    /* レイアウト */
+    main.container{
+      max-width:960px;
+      margin:24px auto;
+      padding: 0 20px;
+    }
+
+    /* 共通UI */
+    .card{
+      background:var(--card);
+      border:1px solid var(--line);
+      border-radius:var(--radius);
+      box-shadow:var(--shadow);
+      padding:20px;
+    }
+
+    .btn{
+      display:inline-block;
+      padding:10px 14px;
+      border-radius:10px;
+      border:1px solid transparent;
+      font-weight:600;
+      text-decoration:none;
+      cursor:pointer;
+      transition: transform .02s ease-in-out, background .2s, border-color .2s;
+    }
+    .btn:active{ transform: translateY(1px); }
+    .btn:focus{ outline:none; box-shadow: var(--focus); }
+
+    .btn-primary{
+      background:var(--brand);
+      color:#fff;
+      border-color:var(--brand);
+    }
+    .btn-primary:hover{ background:var(--brand-600); border-color:var(--brand-600); }
+
+    .btn-outline{
+      background:#fff; color:var(--brand);
+      border-color:var(--brand);
+    }
+    .btn-outline:hover{ background:#eef5ff; }
+
+    /* フォーム */
+    label{ display:block; margin:12px 0 6px; font-weight:600; }
+    input, select, button{
+      font: inherit;
+    }
+    .input, select{
+      width:100%;
+      padding:10px 12px;
+      border:1px solid var(--line);
+      border-radius:10px;
+      background:#fff;
+    }
+    .input:focus, select:focus{
+      outline:none; box-shadow: var(--focus); border-color:var(--brand);
+    }
+
+    /* テーブル（白カード上で見やすく） */
+    .table{
+      width:100%;
+      border-collapse: collapse;
+      border-radius:12px;
+      overflow:hidden;
+      border:1px solid var(--line);
+      background:#fff;
+    }
+    .table th, .table td{
+      padding:10px 12px;
+      border-bottom:1px solid var(--line);
+    }
+    .table th{
+      background:#f7fbff;
+      text-align:left;
+      color:var(--muted);
+      font-weight:700;
+      letter-spacing:.01em;
+    }
+    .table tr:last-child td{ border-bottom:none; }
+
+    /* フラッシュメッセージ（水色トーン） */
+    .flash{
+      background:#e9f3ff;
+      border:1px solid #cfe3ff;
+      color:#0b3e86;
+      padding:10px 14px;
+      margin:14px 0;
+      border-radius:10px;
+    }
+
+    /* セクション余白 */
+    .stack{ display:grid; gap:18px; }
   </style>
 </head>
 <body>
-<header>
-  <a href="{{ url_for('index') }}">トップ</a>
-  <a href="{{ url_for('upload') }}">アップロード</a>
-  <a href="{{ url_for('make') }}">問題作成</a>
-  <a href="{{ url_for('download') }}">ダウンロード</a>
+
+<header class="nav">
+  <div class="nav-inner">
+    <a class="brand" href="{{ url_for('index') }}">英単語テストPDF</a>
+    <div class="space"></div>
+    <nav class="nav">
+      <a href="{{ url_for('index') }}">トップ</a>
+      <a href="{{ url_for('upload') }}">アップロード</a>
+      <a href="{{ url_for('make') }}">問題作成</a>
+      <a href="{{ url_for('download') }}">ダウンロード</a>
+    </nav>
+  </div>
 </header>
 
-{% with messages = get_flashed_messages() %}
-  {% if messages %}
-    {% for m in messages %}
-      <div class="flash">{{ m }}</div>
-    {% endfor %}
-  {% endif %}
-{% endwith %}
+<main class="container">
+  {% with messages = get_flashed_messages() %}
+    {% if messages %}
+      {% for m in messages %}
+        <div class="flash">{{ m }}</div>
+      {% endfor %}
+    {% endif %}
+  {% endwith %}
 
-<main>
-  {% block content %}{% endblock %}
+  <div class="stack">
+    {% block content %}{% endblock %}
+  </div>
 </main>
+
 </body>
 </html>
