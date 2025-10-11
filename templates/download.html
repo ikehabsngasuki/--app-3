@@ -1,26 +1,53 @@
 {% extends "base.html" %}
 {% block title %}ダウンロード | 英単語テストPDF{% endblock %}
 {% block content %}
-<h2>ダウンロード</h2>
 
-{% if q_url or a_url or q or a %}
+<div class="card" style="display:grid; gap:16px;">
+  <h2>ダウンロード</h2>
 
-  {% if q_url %}
-    <p><a href="{{ q_url }}">問題PDFをダウンロード</a></p>
-  {% endif %}
-  {% if a_url %}
-    <p><a href="{{ a_url }}">解答PDFをダウンロード</a></p>
-  {% endif %}
+  {% if q_url or a_url or q or a %}
 
-  {# ローカル運用時 #}
-  {% if q and not q_url %}
-    <p><a href="{{ url_for('download_file', filename=q) }}">問題PDFをダウンロード</a></p>
-  {% endif %}
-  {% if a and not a_url %}
-    <p><a href="{{ url_for('download_file', filename=a) }}">解答PDFをダウンロード</a></p>
-  {% endif %}
+    <p class="label-desc">生成されたPDFを以下から取得できます。署名URLは一定時間で失効します。</p>
 
-{% else %}
-  <p>まだ生成されたPDFがありません。<a href="{{ url_for('make') }}">こちら</a>から作成してください。</p>
-{% endif %}
+    <div class="stack" style="gap:10px;">
+      {% if q_url %}
+        <div>
+          <div class="label-desc" style="margin-bottom:6px;">問題PDF（署名URL）</div>
+          <a class="btn btn-primary" href="{{ q_url }}">問題PDFをダウンロード</a>
+        </div>
+      {% endif %}
+
+      {% if a_url %}
+        <div>
+          <div class="label-desc" style="margin-bottom:6px;">解答PDF（署名URL）</div>
+          <a class="btn btn-primary" href="{{ a_url }}">解答PDFをダウンロード</a>
+        </div>
+      {% endif %}
+
+      {# ローカル運用時（R2未使用時のフォールバック） #}
+      {% if q and not q_url %}
+        <div>
+          <div class="label-desc" style="margin-bottom:6px;">問題PDF（ローカル）</div>
+          <a class="btn btn-outline" href="{{ url_for('download_file', filename=q) }}">問題PDFをダウンロード</a>
+        </div>
+      {% endif %}
+
+      {% if a and not a_url %}
+        <div>
+          <div class="label-desc" style="margin-bottom:6px;">解答PDF（ローカル）</div>
+          <a class="btn btn-outline" href="{{ url_for('download_file', filename=a) }}">解答PDFをダウンロード</a>
+        </div>
+      {% endif %}
+    </div>
+
+    <div>
+      <a class="btn btn-outline" href="{{ url_for('make') }}" style="margin-top:6px;">別のPDFを作成する</a>
+    </div>
+
+  {% else %}
+    <p class="label-desc">まだ生成されたPDFがありません。まずは下のボタンから作成してください。</p>
+    <a class="btn btn-primary" href="{{ url_for('make') }}">PDFを作成する</a>
+  {% endif %}
+</div>
+
 {% endblock %}
