@@ -71,35 +71,11 @@
   </ul>
 </section>
 
-<!-- よくある質問（details 要素で軽いアコーディオン） -->
-<section class="card" style="display:grid; gap:8px;">
-  <h3 style="margin:0;">よくある質問</h3>
 
-  <details class="card" style="box-shadow:none; border:1px solid var(--line);">
-    <summary class="label" style="cursor:pointer;">PDF の保存先は？リンクはいつまで有効？</summary>
-    <div class="label-desc" style="margin-top:8px;">
-      R2 を利用している場合はクラウドに保存され、ページのリンクは一時的な署名URLです（有効期限は環境変数 <code>PRESIGN_EXPIRES</code> で設定）。
-    </div>
-  </details>
-
-  <details class="card" style="box-shadow:none; border:1px solid var(--line);">
-    <summary class="label" style="cursor:pointer;">Excel で日本語のフォントは反映されますか？</summary>
-    <div class="label-desc" style="margin-top:8px;">
-      アプリ内の PDF 生成では「NotoSansJP」を優先使用します。フォントが無い場合は Helvetica にフォールバックします。
-    </div>
-  </details>
-
-  <details class="card" style="box-shadow:none; border:1px solid var(--line);">
-    <summary class="label" style="cursor:pointer;">出題数が範囲より多いときは？</summary>
-    <div class="label-desc" style="margin-top:8px;">
-      実在する件数の範囲で自動的に調整され、重複なしのサンプルが選ばれます。
-    </div>
-  </details>
-</section>
 
 <!-- 最近アップロード -->
 <section class="card" style="display:grid; gap:12px;">
-  <h3 style="margin:0;">最近アップロードしたファイル</h3>
+  <h3 style="margin:0;">現在アップロードされているファイル</h3>
   {% if files %}
     <table class="table">
       <thead><tr><th>ファイル名</th></tr></thead>
