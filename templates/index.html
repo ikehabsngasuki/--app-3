@@ -2,39 +2,107 @@
 {% block title %}トップ | 英単語テストPDF{% endblock %}
 {% block content %}
 
-<div class="card">
-  <h1>英単語テストPDFジェネレーター</h1>
-  <p style="margin:.4em 0 0; color:var(--muted);">
-    Excelをアップロード → 出題範囲と件数を指定 → 問題/解答PDFを作成できます。
+<!-- Hero / 概要 -->
+<section class="card" style="display:grid; gap:10px;">
+  <h1 style="margin:0;">英単語テストPDFジェネレーター</h1>
+  <p class="label-desc" style="margin:0;">
+    単語リスト（Excel）から <strong>問題PDF</strong> と <strong>解答PDF</strong> をワンクリックで作成します。  
+    クラウド（R2）またはローカルに保存され、ダウンロードリンクを発行します。
   </p>
-</div>
-
-<div class="card" style="display:grid; gap:16px;">
-  <h2>このアプリの使い方</h2>
-  <ol style="margin:0; padding-left:1.1rem; color:#334155;">
-    <li style="margin:.4em 0;">テストを作りたい単語リストをExcel（.xlsx）で作ってアップロード</li>
-    <li style="margin:.4em 0;">出題範囲と問題数を入力して問題を作成</li>
-    <li style="margin:.4em 0;">問題と解答がPDFで作成され、ダウンロードできます</li>
-  </ol>
-
   <div style="display:flex; gap:10px; flex-wrap:wrap; margin-top:6px;">
-    <a class="btn btn-primary" href="{{ url_for('upload') }}">① アップロード</a>
-    <a class="btn btn-outline" href="{{ url_for('make') }}">② 問題を作成</a>
-    <a class="btn btn-outline" href="{{ url_for('download') }}">③ ダウンロード</a>
+    <a class="btn btn-primary" href="{{ url_for('upload') }}">まずは Excel をアップロード</a>
+    <a class="btn btn-outline" href="{{ url_for('make') }}">範囲を選んで問題を作成</a>
+    <a class="btn btn-outline" href="{{ url_for('download') }}">作成済みPDFをダウンロード</a>
   </div>
-</div>
+</section>
 
-<!-- 一覧カード -->
-<div class="card" style="display:grid; gap:12px;">
-  <h3>アップロード済みの単語リスト</h3>
+<!-- 3ステップ -->
+<section class="card" style="display:grid; gap:18px;">
+  <h2 style="margin:0;">使い方（3ステップ）</h2>
+  <div style="display:grid; gap:12px; grid-template-columns: repeat(auto-fit, minmax(220px,1fr));">
+    <div class="card" style="border:1px dashed var(--line); box-shadow:none;">
+      <div class="label" style="display:inline-flex; align-items:center; gap:6px;">
+        <span style="font-weight:700; color:var(--brand);">① アップロード</span>
+      </div>
+      <p class="label-desc">Excel（.xlsx）をアップロードします。</p>
+      <a class="btn btn-outline" href="{{ url_for('upload') }}">ファイルを選ぶ</a>
+    </div>
+    <div class="card" style="border:1px dashed var(--line); box-shadow:none;">
+      <div class="label" style="display:inline-flex; align-items:center; gap:6px;">
+        <span style="font-weight:700; color:var(--brand);">② 問題を作成</span>
+      </div>
+      <p class="label-desc">開始/終了番号と出題数を入力して PDF を作成します。</p>
+      <a class="btn btn-outline" href="{{ url_for('make') }}">範囲を指定する</a>
+    </div>
+    <div class="card" style="border:1px dashed var(--line); box-shadow:none;">
+      <div class="label" style="display:inline-flex; align-items:center; gap:6px;">
+        <span style="font-weight:700; color:var(--brand);">③ ダウンロード</span>
+      </div>
+      <p class="label-desc">問題PDF／解答PDFのリンクから保存します。</p>
+      <a class="btn btn-outline" href="{{ url_for('download') }}">PDF を受け取る</a>
+    </div>
+  </div>
+</section>
 
+<!-- Excel 書式例 -->
+<section class="card" style="display:grid; gap:12px;">
+  <h3 style="margin:0;">Excel の書式</h3>
+  <p class="label-desc" style="margin:0;">
+    見出し行の <strong>列名を必ず</strong> 下記の通りにしてください。
+  </p>
+  <table class="table" style="margin-top:6px;">
+    <thead>
+      <tr>
+        <th>number（連番・整数）</th>
+        <th>word（出題語）</th>
+        <th>meaning（意味）</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr><td>1</td><td>apple</td><td>りんご</td></tr>
+      <tr><td>2</td><td>book</td><td>本</td></tr>
+      <tr><td>3</td><td>carry</td><td>運ぶ</td></tr>
+    </tbody>
+  </table>
+  <ul class="label-desc" style="margin:0; padding-left:1.1rem;">
+    <li>先頭行はヘッダーとして <code>number</code> / <code>word</code> / <code>meaning</code>。大小文字は区別されます。</li>
+    <li><code>number</code> は整数のみ（空欄や文字列は自動で除外されます）。</li>
+    <li>アップロード後、<em>問題作成</em>で「開始番号〜終了番号」「出題数」を指定できます。</li>
+  </ul>
+</section>
+
+<!-- よくある質問（details 要素で軽いアコーディオン） -->
+<section class="card" style="display:grid; gap:8px;">
+  <h3 style="margin:0;">よくある質問</h3>
+
+  <details class="card" style="box-shadow:none; border:1px solid var(--line);">
+    <summary class="label" style="cursor:pointer;">PDF の保存先は？リンクはいつまで有効？</summary>
+    <div class="label-desc" style="margin-top:8px;">
+      R2 を利用している場合はクラウドに保存され、ページのリンクは一時的な署名URLです（有効期限は環境変数 <code>PRESIGN_EXPIRES</code> で設定）。
+    </div>
+  </details>
+
+  <details class="card" style="box-shadow:none; border:1px solid var(--line);">
+    <summary class="label" style="cursor:pointer;">Excel で日本語のフォントは反映されますか？</summary>
+    <div class="label-desc" style="margin-top:8px;">
+      アプリ内の PDF 生成では「NotoSansJP」を優先使用します。フォントが無い場合は Helvetica にフォールバックします。
+    </div>
+  </details>
+
+  <details class="card" style="box-shadow:none; border:1px solid var(--line);">
+    <summary class="label" style="cursor:pointer;">出題数が範囲より多いときは？</summary>
+    <div class="label-desc" style="margin-top:8px;">
+      実在する件数の範囲で自動的に調整され、重複なしのサンプルが選ばれます。
+    </div>
+  </details>
+</section>
+
+<!-- 最近アップロード -->
+<section class="card" style="display:grid; gap:12px;">
+  <h3 style="margin:0;">最近アップロードしたファイル</h3>
   {% if files %}
     <table class="table">
-      <thead>
-        <tr>
-          <th>ファイル名</th>
-        </tr>
-      </thead>
+      <thead><tr><th>ファイル名</th></tr></thead>
       <tbody>
         {% for f in files %}
           <tr>
@@ -44,8 +112,8 @@
       </tbody>
     </table>
   {% else %}
-    <p class="label-desc">まだファイルがありません。上のフォームからアップロードしてください。</p>
+    <p class="label-desc">まだファイルがありません。まずは「Excel をアップロード」から。</p>
   {% endif %}
-</div>
+</section>
 
 {% endblock %}
