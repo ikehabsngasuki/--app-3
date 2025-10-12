@@ -1,216 +1,48 @@
+upload backup
 {% extends "base.html" %}
 {% block title %}アップロード | 英単語テストPDF{% endblock %}
 {% block content %}
 
-<!-- アップロード手順スライドショー -->
-<div class="card">
-  <h2>アップロードの手順</h2>
-
-  <div class="slider" id="guideSlider" aria-label="アップロード手順スライド">
-    <!-- ① ファイルを選択ボタンをクリック -->
-    <figure class="slide is-active">
-      <img src="{{ url_for('uploads', filename='guide/upload/step1.png') }}"
-           alt="Step 1: 「ファイルを選択」ボタンをクリック" />
-      <figcaption>
-        <span class="step">STEP 1</span>
-        <strong>「ファイルを選択」をクリック</strong>
-        <p class="caption">エクスプローラーが開きます。</p>
-      </figcaption>
-    </figure>
-
-    <!-- ② エクスプローラーからファイルを選択、開く -->
-    <figure class="slide">
-      <img src="{{ url_for('uploads', filename='guide/upload/step2.png') }}"
-           alt="Step 2: エクスプローラーでファイルを選んで「開く」をクリック" />
-      <figcaption>
-        <span class="step">STEP 2</span>
-        <strong>エクスプローラーで選択 → 「開く」</strong>
-        <p class="caption">アップロードしたいファイルを探して選び、「開く」をクリックします。</p>
-      </figcaption>
-    </figure>
-
-    <!-- ③ アップロードボタンを押してアップロード -->
-    <figure class="slide">
-      <img src="{{ url_for('uploads', filename='guide/upload/step3.png') }}"
-           alt="Step 3: 「アップロード」ボタンを押してアップロード" />
-      <figcaption>
-        <span class="step">STEP 3</span>
-        <strong>「アップロード」をクリック</strong>
-        <p class="caption">「アップデートが完了しました。」と出たら成功です。</p>
-      </figcaption>
-    </figure>
-
-    <!-- ナビゲーション -->
-    <button class="nav prev" aria-label="前のスライド" type="button">‹</button>
-    <button class="nav next" aria-label="次のスライド" type="button">›</button>
-
-    <!-- ドット -->
-    <div class="dots" role="tablist" aria-label="スライド選択">
-      <button class="dot is-active" aria-label="1枚目" role="tab"></button>
-      <button class="dot" aria-label="2枚目" role="tab"></button>
-      <button class="dot" aria-label="3枚目" role="tab"></button>
-    </div>
-  </div>
-
-  <noscript>
-    <p class="label-desc" style="margin-top:10px;">※スライドの表示にはJavaScriptが必要です。以下は静止表示です。</p>
-    <div style="display:grid; gap:12px;">
-      <img src="{{ url_for('static', filename='guide/step1_click_button.png') }}" alt="" style="width:100%; border:1px solid var(--line); border-radius:12px;">
-      <img src="{{ url_for('static', filename='guide/step2_select_file.png') }}" alt="" style="width:100%; border:1px solid var(--line); border-radius:12px;">
-      <img src="{{ url_for('static', filename='guide/step3_press_upload.png') }}" alt="" style="width:100%; border:1px solid var(--line); border-radius:12px;">
-    </div>
-  </noscript>
-</div>
-
-<!-- アップロードフォーム -->
-<div class="card">
+<!-- アップロードカード -->
+<div class="card" style="display:grid; gap:14px;">
   <h2>Excel（.xlsx）アップロード</h2>
-  <form action="{{ url_for('upload') }}" method="post" enctype="multipart/form-data" class="form-grid">
+  <p class="label-desc">1行目に <strong>number / word / meaning</strong> のヘッダーが必要です。最大 16MB。</p>
+
+  <form action="{{ url_for('upload') }}" method="post" enctype="multipart/form-data" class="stack">
     <div class="field">
-      <label class="label" for="fileInput">ファイルを選択</label>
-      <p class="label-desc">.xlsx のみ、最大16MB</p>
-      <input id="fileInput" class="input" type="file" name="file" accept=".xlsx" required />
+      <label for="file">ファイルを選択</label>
+      <input id="file" class="input" type="file" name="file" accept=".xlsx" required />
     </div>
-    <div class="actions">
+    <div>
       <button type="submit" class="btn btn-primary">アップロード</button>
+      <a class="btn btn-outline" href="{{ url_for('make') }}" style="margin-left:6px;">問題を作成へ</a>
     </div>
   </form>
 </div>
-
-<!-- 一覧 -->
-<div class="card">
-  <h3>アップロード済みファイル</h3>
-  {% if files %}
-    <table class="table">
-      <thead><tr><th>ファイル名</th></tr></thead>
-      <tbody>
-        {% for f in files %}
-          <tr>
-            <td style="white-space:normal; word-break:break-word; overflow-wrap:anywhere;">{{ f }}</td>
-          </tr>
-        {% endfor %}
-      </tbody>
-    </table>
-  {% else %}
-    <p class="label-desc">まだありません。上のフォームからアップロードしてください。</p>
-  {% endif %}
+<!--フォーマットの説明-->
+<div class="card" style="display:grid; gap:12px;">
+  <h3>Excelのフォーマット</h3>
+  <p class="label-desc" style="margin:0;">
+    1行目にヘッダーとして <strong>number</strong> / <strong>word</strong> / <strong>meaning</strong> を用意してください。
+  </p>
+  <table class="table">
+    <thead>
+      <tr>
+        <th>number</th>
+        <th>word</th>
+        <th>meaning</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td>1</td><td>apple</td><td>りんご</td>
+      </tr>
+      <tr>
+        <td>2</td><td>book</td><td>本</td>
+      </tr>
+    </tbody>
+  </table>
 </div>
 
-<style>
-  .slider{
-    position:relative;
-    /* ❗カード内でコンパクトに */
-    width: min(720px, 100%);
-    /* 画面幅に応じて 180〜360px の間で可変 */
-    height: clamp(180px, 40vw, 360px);
-    margin: 8px auto 0;
-
-    border:1px solid var(--line);
-    border-radius:12px;
-    overflow:hidden;
-    background:#fff;
-  }
-
-  .slide{
-    position:absolute; inset:0;
-    opacity:0; visibility:hidden;
-    transition: opacity .35s ease, visibility .35s ease;
-    display:grid; grid-template-rows: 1fr auto;
-    background:#fff;
-  }
-  .slide.is-active{ opacity:1; visibility:visible; }
-
-  /* 画像はトリミングせず収めたいなら contain、切り抜いてでも埋めたいなら cover */
-  .slide img{
-    width:100%; height:100%;
-    object-fit: contain;   /* ← cover から変更して見出しに干渉しないように */
-    display:block; background:#f7fbff;
-  }
-
-  .slide figcaption{
-    position:absolute; left:12px; bottom:12px;
-    background: rgba(255,255,255,.94);
-    border:1px solid var(--line);
-    border-radius:10px;
-    padding:8px 10px;
-    box-shadow: 0 6px 20px rgba(42,125,225,.08);
-    max-width:min(560px, 90%);
-  }
-  .slide .step{
-    display:inline-block; font-size:12px; font-weight:700;
-    color:#fff; background:var(--brand);
-    padding:2px 8px; border-radius:999px; margin-right:8px;
-  }
-  .slide strong{ font-weight:700; }
-  .slide .caption{ margin:.25em 0 0; color:var(--muted); }
-
-  .nav{
-    position:absolute; top:50%; transform:translateY(-50%);
-    width:36px; height:36px; border-radius:999px;
-    border:1px solid var(--line); background:#fff;
-    box-shadow: var(--shadow);
-    cursor:pointer; font-size:20px; line-height:34px;
-    text-align:center; user-select:none;
-  }
-  .nav:hover{ background:#f7fbff; }
-  .nav.prev{ left:8px; }
-  .nav.next{ right:8px; }
-
-  .dots{
-    position:absolute; left:0; right:0; bottom:8px;
-    display:flex; justify-content:center; gap:8px;
-  }
-  .dot{
-    width:8px; height:8px; border-radius:999px;
-    background:#cfe3ff; border:0; cursor:pointer;
-  }
-  .dot.is-active{ background:var(--brand); }
-
-  /* モバイルでさらに控えめに */
-  @media (max-width: 480px){
-    .slider{ height: clamp(160px, 44vw, 240px); }
-    .nav{ width:32px; height:32px; font-size:18px; line-height:30px; }
-    .slide figcaption{ padding:6px 8px; }
-  }
-</style>
-
-
-<!-- スライダーJS（自動再生・ホバー停止・ドット/矢印/キー操作） -->
-<script>
-(function(){
-  const slider = document.getElementById('guideSlider');
-  const slides = Array.from(slider.querySelectorAll('.slide'));
-  const dots   = Array.from(slider.querySelectorAll('.dot'));
-  const prev   = slider.querySelector('.prev');
-  const next   = slider.querySelector('.next');
-
-  let i = 0, timer = null, delay = 4200;
-
-  function show(n){
-    i = (n + slides.length) % slides.length;
-    slides.forEach((s, idx)=> s.classList.toggle('is-active', idx===i));
-    dots.forEach((d, idx)=> d.classList.toggle('is-active', idx===i));
-  }
-  function start(){ stop(); timer = setInterval(()=> show(i+1), delay); }
-  function stop(){ if(timer){ clearInterval(timer); timer=null; } }
-
-  prev.addEventListener('click', ()=>{ show(i-1); start(); });
-  next.addEventListener('click', ()=>{ show(i+1); start(); });
-  dots.forEach((d, idx)=> d.addEventListener('click', ()=>{ show(idx); start(); }));
-
-  slider.addEventListener('mouseenter', stop);
-  slider.addEventListener('mouseleave', start);
-  document.addEventListener('visibilitychange', ()=> document.hidden ? stop() : start());
-
-  // キーボード操作
-  slider.tabIndex = 0;
-  slider.addEventListener('keydown', (e)=>{
-    if(e.key==='ArrowLeft'){ e.preventDefault(); show(i-1); start(); }
-    if(e.key==='ArrowRight'){ e.preventDefault(); show(i+1); start(); }
-  });
-
-  show(0); start();
-})();
-</script>
 
 {% endblock %}
