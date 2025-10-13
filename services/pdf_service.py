@@ -9,6 +9,20 @@ from reportlab.lib.pagesizes import A4
 from reportlab.pdfbase import pdfmetrics
 from reportlab.pdfbase.ttfonts import TTFont
 
+# === 段落の必要高さを計測するユーティリティ ===
+def measure_para_height(text: str, style, box_width: float, padding: int = 8, min_h: int = 40) -> int:
+    """
+    ReportLab Paragraph を実際に wrap して必要高さ(px)を返します。
+    box_width は外枠の幅（パディングは内部で差し引く）。
+    """
+    from reportlab.platypus import Paragraph  # ローカル import でもOK
+    p = Paragraph(text or "", style)
+    # 高さは十分大きい値を与えて wrap し、必要な高さを得る
+    _, h = p.wrap(box_width - 2*padding, 10**6)
+    return max(min_h, int(h + 2*padding))
+
+
+
 def register_fonts(fonts_dir: str):
     font_name = "Helvetica"
     candidates = [
@@ -40,9 +54,19 @@ def register_fonts(fonts_dir: str):
 
 def build_styles(font_name: str):
     styles = getSampleStyleSheet()
-    styles.add(ParagraphStyle(name="Q", parent=styles["Normal"], fontName=font_name, fontSize=13, leading=14))
-    styles.add(ParagraphStyle(name="A", parent=styles["Normal"], fontName=font_name, fontSize=10, leading=12, textColor=colors.red))
+    styles.add(ParagraphStyle(
+        name="Q", parent=styles["Normal"],
+        fontName=font_name, fontSize=13, leading=15,
+        wordWrap='CJK',          # ← 日本語に強い折り返し
+        splitLongWords=1,        # ← 長い単語も強制改行
+    ))
+    styles.add(ParagraphStyle(
+        name="A", parent=styles["Normal"],
+        fontName=font_name, fontSize=10, leading=13, textColor=colors.red,
+        wordWrap='CJK', splitLongWords=1,
+    ))
     return styles
+
 
 class NumberBox(Flowable):
     def __init__(self, number, width=40, height=40, radius=6, font_name="Helvetica"):
@@ -100,52 +124,80 @@ def build_pdf(df: pd.DataFrame, styles, with_answers=False):
 
     PAGE_WIDTH, PAGE_HEIGHT = A4
     usable_width = PAGE_WIDTH - doc.leftMargin - doc.rightMargin
-    gap = 12; num_width = 40; row_h = 40
+    gap = 12
+    num_width = 40
+    # 最低行高（従来の 40 を維持）
+    base_row_h = 40
+
+    # 左右2セット（番号/問題/解答）
     remaining_width = usable_width - num_width*2 - gap*5
     q_width = remaining_width * 0.5 / 2
     a_width = remaining_width * 0.5 / 2
 
-    colWidths = [num_width, gap, q_width, gap, a_width, gap, num_width, gap, q_width, gap, a_width]
+    colWidths = [num_width, gap, q_width, gap, a_width,
+                 gap, num_width, gap, q_width, gap, a_width]
 
-    # ★ 追加：段落スタイルと同じフォント名を取得
     font_for_boxes = styles["Q"].fontName
+    # ここで使うパディング量は Paragraph 計測と Flowable 描画の整合を取るため 8 に固定
+    padding = 8
 
-    data = []; row = []
+    data = []
+    row = []
+    pair = []  # 左右2問をまとめて高さ決定するためにバッファする
+
     for i, r in df.iterrows():
+        # 値の準備
         try:
-            disp_no = int(r["number"])
+            disp_no = int(r.get("number", ""))
         except Exception:
-            disp_no = r["number"]
+            disp_no = r.get("number", "")
+        q_text = str(r.get("word", "") or "")
+        ans_text = str(r.get("meaning", "") or "") if with_answers else ""
 
-        q_text = str(r["word"])
-        ans_text = str(r["meaning"]) if with_answers else None
-
-        if i % 2 == 0:
-            row.extend([
-                # ★ 修正：font_name を渡す
-                NumberBox(disp_no, num_width, row_h, font_name=font_for_boxes), "",
-                RoundedBox(q_text, styles, q_width, row_h), "",
-                AnswerBox(styles, a_width, row_h, answer=ans_text)
-            ])
+        # このカード（1問）に必要な高さを計測
+        h_q = measure_para_height(q_text, styles["Q"], q_width, padding=padding, min_h=base_row_h)
+        if with_answers:
+            h_a = measure_para_height(ans_text, styles["A"], a_width, padding=padding, min_h=base_row_h)
         else:
-            row.extend([
-                "", NumberBox(disp_no, num_width, row_h, font_name=font_for_boxes), "",
-                RoundedBox(q_text, styles, q_width, row_h), "",
-                AnswerBox(styles, a_width, row_h, answer=ans_text)
-            ])
-            data.append(row); row = []
+            h_a = base_row_h
+        need_h = max(base_row_h, h_q, h_a)
 
-    if row:
-        while len(row) < len(colWidths): row.append("")
-        data.append(row)
+        pair.append((disp_no, q_text, ans_text, need_h))
+
+        # 2件たまったら1行に並べる（最後の1件が余ったら片側だけで行を作る）
+        if len(pair) == 2 or i == len(df) - 1:
+            left = pair[0]
+            right = pair[1] if len(pair) == 2 else None
+            row_h = max(left[3], right[3] if right else base_row_h)
+
+            # 左側
+            row.extend([
+                NumberBox(left[0], num_width, row_h, font_name=font_for_boxes), "",
+                RoundedBox(left[1], styles, q_width, row_h, padding=padding), "",
+                AnswerBox(styles, a_width, row_h, answer=left[2] if with_answers else None)
+            ])
+
+            # 右側（なければ空埋め）
+            if right:
+                row.extend([
+                    "", NumberBox(right[0], num_width, row_h, font_name=font_for_boxes), "",
+                    RoundedBox(right[1], styles, q_width, row_h, padding=padding), "",
+                    AnswerBox(styles, a_width, row_h, answer=right[2] if with_answers else None)
+                ])
+            else:
+                row.extend(["", "", "", "", ""])  # gap/num/gap/q/gap/a の空埋め
+
+            data.append(row)
+            row = []
+            pair = []
 
     table = Table(data, colWidths=colWidths, hAlign="CENTER")
     table.setStyle(TableStyle([
-        ("VALIGN", (0,0), (-1,-1), "MIDDLE"),
-        ("LEFTPADDING", (0,0), (-1,-1), 0),
-        ("RIGHTPADDING", (0,0), (-1,-1), 0),
-        ("TOPPADDING", (0,0), (-1,-1), 0),
-        ("BOTTOMPADDING", (0,0), (-1,-1), 0),
+        ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+        ("LEFTPADDING", (0, 0), (-1, -1), 0),
+        ("RIGHTPADDING", (0, 0), (-1, -1), 0),
+        ("TOPPADDING", (0, 0), (-1, -1), 0),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 0),
     ]))
     story.append(table)
     doc.build(story)
