@@ -9,14 +9,13 @@ from reportlab.lib.pagesizes import A4
 from reportlab.pdfbase import pdfmetrics
 from reportlab.pdfbase.ttfonts import TTFont
 
-# フォント登録（存在すれば Noto 優先）
 def register_fonts(fonts_dir: str):
     font_name = "Helvetica"
     candidates = [
-        "NotoSnas.JP-VariablFont_wght.ttf",
-        "NotoSansJP-VariableFont_wght.ttf",
+        "NotoSansJP-Regular.ttf",            # ← 最優先に
         "NotoSansCJKjp-Regular.otf",
-        "NotoSansJP-Regular.ttf",
+        "NotoSansJP-VariableFont_wght.ttf",  # 可変は最後（または外してもOK）
+        # "NotoSnas.JP-VariablFont_wght.ttf",  # ← タイポなので削除
     ]
     selected = None
     for fname in candidates:
@@ -38,23 +37,36 @@ def register_fonts(fonts_dir: str):
 
     return font_name
 
+
 def build_styles(font_name: str):
     styles = getSampleStyleSheet()
     styles.add(ParagraphStyle(name="Q", parent=styles["Normal"], fontName=font_name, fontSize=13, leading=14))
     styles.add(ParagraphStyle(name="A", parent=styles["Normal"], fontName=font_name, fontSize=10, leading=12, textColor=colors.red))
     return styles
 
-# Flowables
 class NumberBox(Flowable):
-    def __init__(self, number, width=40, height=40, radius=6):
+    def __init__(self, number, width=40, height=40, radius=6, font_name="Helvetica"):
         super().__init__()
-        self.number = number; self.width = width; self.height = height; self.radius = radius
-    def wrap(self, aw, ah): return self.width, self.height
+        self.number = number
+        self.width = width
+        self.height = height
+        self.radius = radius
+        self.font_name = font_name
+
+    def wrap(self, aw, ah):
+        return self.width, self.height
+
     def draw(self):
-        self.canv.setStrokeColor(colors.blue); self.canv.setLineWidth(0.5)
-        self.canv.roundRect(0,0,self.width,self.height,self.radius, stroke=1, fill=0)
-        self.canv.setFont(self.canv._fontname, 10)  # フォントは doc 側でセットされる
+        self.canv.setStrokeColor(colors.blue)
+        self.canv.setLineWidth(0.5)
+        self.canv.roundRect(0, 0, self.width, self.height, self.radius, stroke=1, fill=0)
+
+        # ここを修正：スタイルと同じフォントを使う
+        self.canv.setFillColor(colors.black)
+        self.canv.setFont(self.font_name, 10)
+
         self.canv.drawCentredString(self.width/2, self.height/2 - 4, str(self.number))
+
 
 class RoundedBox(Flowable):
     def __init__(self, text, styles, width=100, height=40, radius=6, padding=4):
@@ -95,6 +107,9 @@ def build_pdf(df: pd.DataFrame, styles, with_answers=False):
 
     colWidths = [num_width, gap, q_width, gap, a_width, gap, num_width, gap, q_width, gap, a_width]
 
+    # ★ 追加：段落スタイルと同じフォント名を取得
+    font_for_boxes = styles["Q"].fontName
+
     data = []; row = []
     for i, r in df.iterrows():
         try:
@@ -106,13 +121,18 @@ def build_pdf(df: pd.DataFrame, styles, with_answers=False):
         ans_text = str(r["meaning"]) if with_answers else None
 
         if i % 2 == 0:
-            row.extend([NumberBox(disp_no, num_width, row_h), "",
-                        RoundedBox(q_text, styles, q_width, row_h), "",
-                        AnswerBox(styles, a_width, row_h, answer=ans_text)])
+            row.extend([
+                # ★ 修正：font_name を渡す
+                NumberBox(disp_no, num_width, row_h, font_name=font_for_boxes), "",
+                RoundedBox(q_text, styles, q_width, row_h), "",
+                AnswerBox(styles, a_width, row_h, answer=ans_text)
+            ])
         else:
-            row.extend(["", NumberBox(disp_no, num_width, row_h), "",
-                        RoundedBox(q_text, styles, q_width, row_h), "",
-                        AnswerBox(styles, a_width, row_h, answer=ans_text)])
+            row.extend([
+                "", NumberBox(disp_no, num_width, row_h, font_name=font_for_boxes), "",
+                RoundedBox(q_text, styles, q_width, row_h), "",
+                AnswerBox(styles, a_width, row_h, answer=ans_text)
+            ])
             data.append(row); row = []
 
     if row:
