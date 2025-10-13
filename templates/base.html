@@ -47,14 +47,14 @@
     h2{ font-weight:700; font-size: clamp(18px, 2.4vw, 22px); }
     h3{ font-weight:600; font-size: clamp(16px, 2vw, 18px); color:#1f2937; }
 
-    /* ヘッダー */
-    header.nav{
+    /* ヘッダー（クラス名を .appbar 系に変更） */
+    header.appbar{
       position:sticky; top:0; z-index:10;
       background:var(--card);
       border-bottom:1px solid var(--line);
       box-shadow: 0 2px 10px rgba(0,0,0,.02);
     }
-    .nav-inner{
+    .appbar-inner{
       max-width: 960px;
       margin: 0 auto;
       padding: 14px 20px;
@@ -66,13 +66,14 @@
       font-size:18px;
     }
     .space{ flex:1; }
-    .nav a{
+    /* ここも .topnav に変更 */
+    .topnav a{
       color:var(--ink); text-decoration:none;
       padding:8px 10px; border-radius:8px;
       font-weight:600;
     }
-    .nav a:hover{ background: #eef5ff; }
-    .nav .active{ color:var(--brand); }
+    .topnav a:hover{ background:#eef5ff; }
+    .topnav .active{ color:var(--brand); }
 
     /* レイアウト */
     main.container{
@@ -203,11 +204,11 @@
 </head>
 <body>
 
-<header class="nav">
-  <div class="nav-inner">
+<header class="appbar">
+  <div class="appbar-inner">
     <a class="brand" href="{{ url_for('index') }}">英単語テストPDF</a>
     <div class="space"></div>
-    <nav class="nav">
+    <nav class="topnav">
       <a href="{{ url_for('index') }}">トップ</a>
       <a href="{{ url_for('upload') }}">アップロード</a>
       <a href="{{ url_for('make') }}">問題作成</a>

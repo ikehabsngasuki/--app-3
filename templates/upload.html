@@ -1,7 +1,21 @@
-#improving upload
 {% extends "base.html" %}
 {% block title %}アップロード | 英単語テストPDF{% endblock %}
 {% block content %}
+
+<!-- アップロードフォーム -->
+<div class="card">
+  <h2>Excel（.xlsx）で作成した単語リストをアップロード</h2>
+  <form action="{{ url_for('upload') }}" method="post" enctype="multipart/form-data" class="form-grid">
+    <div class="field">
+      <label class="label" for="fileInput">ファイルを選択</label>
+      <p class="label-desc">ファイル形式が.xlsxであることを確認してください、最大16MBまでです</p>
+      <input id="fileInput" class="input" type="file" name="file" accept=".xlsx" required />
+    </div>
+    <div class="actions">
+      <button type="submit" class="btn btn-primary">アップロード</button>
+    </div>
+  </form>
+</div>
 
 <!-- アップロード手順スライドショー -->
 <div class="card">
@@ -10,7 +24,7 @@
   <div class="slider" id="guideSlider" aria-label="アップロード手順スライド">
     <!-- ① ファイルを選択ボタンをクリック -->
     <figure class="slide is-active">
-      <img src="{{ url_for('static', filename='guide/upload/step1.png') }}"
+      <img src="{{ url_for('static', filename='guide/upload/step1b.png') }}"
            alt="Step 1: 「ファイルを選択」ボタンをクリック" />
       <figcaption>
         <span class="step">STEP 1</span>
@@ -21,7 +35,7 @@
 
     <!-- ② エクスプローラーからファイルを選択、開く -->
     <figure class="slide">
-      <img src="{{ url_for('static', filename='guide/upload/step2.png') }}"
+      <img src="{{ url_for('static', filename='guide/upload/step2d.png') }}"
            alt="Step 2: エクスプローラーでファイルを選んで「開く」をクリック" />
       <figcaption>
         <span class="step">STEP 2</span>
@@ -32,12 +46,12 @@
 
     <!-- ③ アップロードボタンを押してアップロード -->
     <figure class="slide">
-      <img src="{{ url_for('static', filename='guide/upload/step3.png') }}"
+      <img src="{{ url_for('static', filename='guide/upload/step3b.png') }}"
            alt="Step 3: 「アップロード」ボタンを押してアップロード" />
       <figcaption>
         <span class="step">STEP 3</span>
         <strong>「アップロード」をクリック</strong>
-        <p class="caption">「アップデートが完了しました。」と出たら成功です。</p>
+        <p class="caption">「アップロードが完了しました。」と出たら成功です。</p>
       </figcaption>
     </figure>
 
@@ -61,21 +75,6 @@
       <img src="{{ url_for('static', filename='guide/step3_press_upload.png') }}" alt="" style="width:100%; border:1px solid var(--line); border-radius:12px;">
     </div>
   </noscript>
-</div>
-
-<!-- アップロードフォーム -->
-<div class="card">
-  <h2>Excel（.xlsx）アップロード</h2>
-  <form action="{{ url_for('upload') }}" method="post" enctype="multipart/form-data" class="form-grid">
-    <div class="field">
-      <label class="label" for="fileInput">ファイルを選択</label>
-      <p class="label-desc">.xlsx のみ、最大16MB</p>
-      <input id="fileInput" class="input" type="file" name="file" accept=".xlsx" required />
-    </div>
-    <div class="actions">
-      <button type="submit" class="btn btn-primary">アップロード</button>
-    </div>
-  </form>
 </div>
 
 <!-- 一覧 -->
