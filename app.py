@@ -83,6 +83,7 @@ def make():
         start_num = request.form.get("start_num", "")
         end_num = request.form.get("end_num", "")
         num_questions = request.form.get("num_questions", "")
+        mode = request.form.get("mode", "en-ja")  # 英和/和英
 
         if filename not in files:
             flash("不正なファイル名です。")
@@ -127,14 +128,36 @@ def make():
         n = min(num_questions, len(df_range))
         sample = df_range.sample(n=n).reset_index(drop=True)
 
+        # 出題モードに応じて列を切替
+        if mode == "en-ja":
+            question_col, answer_col = "word", "meaning"     # 英→和
+            title_base = "英和"
+        elif mode == "ja-en":
+            question_col, answer_col = "meaning", "word"     # 和→英
+            title_base = "和英"
+        else:
+            flash("不正な出題モードです。"); return redirect(url_for("make"))
+
         stamp = dt.datetime.now().strftime("%Y%m%d-%H%M%S")
         uid = uuid.uuid4().hex[:8]
-        q_name = f"questions_{stamp}_{uid}.pdf"
-        a_name = f"answers_{stamp}_{uid}.pdf"
+        q_name = f"questions_{title_base}_{stamp}_{uid}.pdf"
+        a_name = f"answers_{title_base}_{stamp}_{uid}.pdf"
 
         try:
-            q_pdf = build_pdf(sample, styles, with_answers=False).read()
-            a_pdf = build_pdf(sample, styles, with_answers=True ).read()
+            q_pdf = build_pdf(
+                sample, styles,
+                with_answers=False,
+                question_col=question_col,
+                answer_col=answer_col,
+                title=f"{title_base}：問題"
+            ).read()
+            a_pdf = build_pdf(
+                sample, styles,
+                with_answers=True,
+                question_col=question_col,
+                answer_col=answer_col,
+                title=f"{title_base}：解答"
+            ).read()
 
             if cfg.USE_R2:
                 q_key = f"generated/{q_name}"

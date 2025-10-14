@@ -3,7 +3,6 @@ __pycache__/
 *.pyc
 *.pyo
 *.pyd
-*.pyc
 
 # Virtual env
 .venv/
@@ -24,6 +23,10 @@ build/
 # Local uploads (生成物やユーザーアップロード)
 uploads/*
 !uploads/.gitkeep
+
+#loacl generated
+generated/*
+!generated/.gitkeep
 
 # Logs
 *.log

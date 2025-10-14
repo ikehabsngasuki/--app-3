@@ -1,4 +1,4 @@
-{% extends "base.html" %}
+ {% extends "base.html" %}
 {% block title %}問題作成 | 英単語テストPDF{% endblock %}
 {% block content %}
 
@@ -6,8 +6,11 @@
   <h2>問題作成</h2>
   <p class="label-desc">
     アップロード済みの Excel を選び、番号の範囲と出題数を指定して PDF を生成します。
-    ヘッダーは <strong>number / word / meaning</strong> が必要です。
+    ヘッダーは <strong>number / word / meaning</strong> が必要です（順不同でOK）。
   </p>
+
+  {# ラジオの選択状態を保持 #}
+  {% set selected_mode = request.form.get('mode', 'en-ja') %}
 
   <form action="{{ url_for('make') }}" method="post" class="stack">
     <div class="field">
@@ -23,6 +26,27 @@
           <a href="{{ url_for('upload') }}">アップロード</a> してください。
         </p>
       {% endif %}
+    </div>
+
+    <!-- 出題モード（独立した field に） -->
+    <div class="field">
+      <label>出題モード</label>
+      <div>
+        <label>
+          <input type="radio" name="mode" value="en-ja"
+                 {% if selected_mode == 'en-ja' %}checked{% endif %}>
+          英 → 和（英和）
+        </label>
+        <label style="margin-left:12px;">
+          <input type="radio" name="mode" value="ja-en"
+                 {% if selected_mode == 'ja-en' %}checked{% endif %}>
+          和 → 英（和英）
+        </label>
+      </div>
+      <p class="label-desc" style="margin-top:6px;">
+        英和：問題に <code>word</code>、解答に <code>meaning</code> を表示。<br>
+        和英：問題に <code>meaning</code>、解答に <code>word</code> を表示。
+      </p>
     </div>
 
     <div class="field">
