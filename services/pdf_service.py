@@ -1,5 +1,7 @@
+# services/pdf_service.py
 import io
 import os
+from typing import Any
 import pandas as pd
 from reportlab.platypus import SimpleDocTemplate, Paragraph, Flowable, Table, TableStyle, Spacer
 from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
@@ -101,6 +103,21 @@ class AnswerBox(Flowable):
             w,h = p.wrap(self.width-8, self.height-8)
             p.drawOn(self.canv, 4, max(0,(self.height-h)/2))
 
+# === セル値 → 表示文字列 変換（単一責務ヘルパー） ===
+def cell_to_text(v: Any, *, strip: bool = True, uppercase_bool: bool = False) -> str:
+    """
+    DataFrameのセル値をPDF表示用の文字列に正規化する。
+    - NaN/None は空文字
+    - bool は 'TRUE'/'FALSE'（uppercase_bool=Falseで 'True'/'False'）
+    - それ以外は str()。strip=True なら前後空白をトリム
+    """
+    if pd.isna(v):
+        return ""
+    if isinstance(v, bool):
+        return ("TRUE" if v else "FALSE") if uppercase_bool else str(v)
+    s = str(v)
+    return s.strip() if strip else s
+
 def build_pdf(
     df: pd.DataFrame,
     styles,
@@ -147,9 +164,9 @@ def build_pdf(
         except Exception:
             disp_no = r.get("number", "")
 
-        # 出題/解答の列を切替
-        q_text = str(r.get(question_col, "") or "")
-        ans_text = str(r.get(answer_col, "") or "") if with_answers else ""
+        # 出題/解答（ブール/NaNを安全に扱う）
+        q_text = cell_to_text(r.get(question_col, None))
+        ans_text = cell_to_text(r.get(answer_col, None)) if with_answers else ""
 
         # 高さ計測
         h_q = measure_para_height(q_text, styles["Q"], q_width, padding=padding, min_h=base_row_h)
