@@ -138,6 +138,15 @@ def make():
         else:
             flash("不正な出題モードです。"); return redirect(url_for("make"))
 
+        # タイトルにファイル名（拡張子なし）、範囲、出題数を含める
+        base_name, _ = os.path.splitext(filename)
+        title_common = f"{base_name} / No.{start_num}–{end_num} / {n}問"
+        title_q = f"{title_base}：問題（{title_common}）"
+        title_a = f"{title_base}：解答（{title_common}）"
+        # もしファイル名だけで良ければ↓に置き換え
+        # title_q = f"{title_base}：問題（{base_name}）"
+        # title_a = f"{title_base}：解答（{base_name}）"
+
         stamp = dt.datetime.now().strftime("%Y%m%d-%H%M%S")
         uid = uuid.uuid4().hex[:8]
         q_name = f"questions_{title_base}_{stamp}_{uid}.pdf"
@@ -149,14 +158,14 @@ def make():
                 with_answers=False,
                 question_col=question_col,
                 answer_col=answer_col,
-                title=f"{title_base}：問題"
+                title=title_q
             ).read()
             a_pdf = build_pdf(
                 sample, styles,
                 with_answers=True,
                 question_col=question_col,
                 answer_col=answer_col,
-                title=f"{title_base}：解答"
+                title=title_a
             ).read()
 
             if cfg.USE_R2:
