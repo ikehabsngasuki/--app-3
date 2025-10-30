@@ -37,3 +37,8 @@ generated/*
 
 # Cache
 *.cache
+
+# Local backup / work dirs
+bugit/
+*.bundle
+
