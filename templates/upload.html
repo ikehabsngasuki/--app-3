@@ -2,14 +2,14 @@
 {% block title %}アップロード | 英単語テストPDF{% endblock %}
 {% block content %}
 
-<!-- アップロードフォーム -->
+<!-- 単一ファイルのアップロードフォーム（従来） -->
 <div class="card">
   <h2>Excel（.xlsx）で作成した単語リストをアップロード</h2>
   <form action="{{ url_for('upload') }}" method="post" enctype="multipart/form-data" class="form-grid">
     <div class="field">
       <label class="label" for="fileInput">ファイルを選択</label>
-      <p class="label-desc">ファイル形式が.xlsxであることを確認してください、最大16MBまでです</p>
-      <input id="fileInput" class="input" type="file" name="file" accept=".xlsx" required />
+      <p class="label-desc">ファイル形式が .xlsx であることを確認してください。最大16MBまでです。</p>
+      <input id="fileInput" class="input" type="file" name="file" accept=".xlsx" />
     </div>
     <div class="actions">
       <button type="submit" class="btn btn-primary">アップロード</button>
@@ -17,12 +17,42 @@
   </form>
 </div>
 
-<!-- アップロード手順スライドショー -->
+<!-- 追加: レッスンフォルダをZIPで一括アップロード -->
+<div class="card">
+  <h2>レッスンフォルダをZIPで一括アップロード</h2>
+  <p class="label-desc">
+    フォルダをZIPにしてアップロードすると、中の <code>.xlsx</code> を <code>uploads/lessons/</code> に展開します。<br>
+    ファイル名に含まれる数字が「レッスン番号」として扱われます（例：<code>lesson2.xlsx</code> → 2）。
+  </p>
+  <form action="{{ url_for('upload') }}" method="post" enctype="multipart/form-data" class="form-grid">
+    <div class="field">
+      <label class="label" for="lessonZip">ZIPを選択</label>
+      <input id="lessonZip" class="input" type="file" name="lesson_zip" accept=".zip" />
+    </div>
+    <div class="actions">
+      <button type="submit" class="btn">アップロード</button>
+    </div>
+  </form>
+
+  <div class="field" style="margin-top:12px;">
+    <label class="label">アップロード済みレッスン</label>
+    {% if lessons %}
+      <ul style="margin:.5rem 0 0 1rem; display:grid; gap:.25rem;">
+        {% for l in lessons %}
+          <li style="white-space:normal; word-break:break-word; overflow-wrap:anywhere;">{{ l }}</li>
+        {% endfor %}
+      </ul>
+    {% else %}
+      <p class="label-desc">まだレッスンファイルがありません。</p>
+    {% endif %}
+  </div>
+</div>
+
+<!-- アップロード手順スライドショー（あなたの既存UIを維持） -->
 <div class="card">
   <h2>アップロードの手順</h2>
 
   <div class="slider" id="guideSlider" aria-label="アップロード手順スライド">
-    <!-- ① ファイルを選択ボタンをクリック -->
     <figure class="slide is-active">
       <img src="{{ url_for('static', filename='guide/upload/step1b.png') }}"
            alt="Step 1: 「ファイルを選択」ボタンをクリック" />
@@ -32,8 +62,6 @@
         <p class="caption">エクスプローラーが開きます。</p>
       </figcaption>
     </figure>
-
-    <!-- ② エクスプローラーからファイルを選択、開く -->
     <figure class="slide">
       <img src="{{ url_for('static', filename='guide/upload/step2d.png') }}"
            alt="Step 2: エクスプローラーでファイルを選んで「開く」をクリック" />
@@ -43,8 +71,6 @@
         <p class="caption">アップロードしたいファイルを探して選び、「開く」をクリックします。</p>
       </figcaption>
     </figure>
-
-    <!-- ③ アップロードボタンを押してアップロード -->
     <figure class="slide">
       <img src="{{ url_for('static', filename='guide/upload/step3b.png') }}"
            alt="Step 3: 「アップロード」ボタンを押してアップロード" />
@@ -55,11 +81,9 @@
       </figcaption>
     </figure>
 
-    <!-- ナビゲーション -->
     <button class="nav prev" aria-label="前のスライド" type="button">‹</button>
     <button class="nav next" aria-label="次のスライド" type="button">›</button>
 
-    <!-- ドット -->
     <div class="dots" role="tablist" aria-label="スライド選択">
       <button class="dot is-active" aria-label="1枚目" role="tab"></button>
       <button class="dot" aria-label="2枚目" role="tab"></button>
@@ -77,7 +101,7 @@
   </noscript>
 </div>
 
-<!-- 一覧 -->
+<!-- 一覧（従来の単一アップロード一覧） -->
 <div class="card">
   <h3>アップロード済みファイル</h3>
   {% if files %}
@@ -97,85 +121,32 @@
 </div>
 
 <style>
-  .slider{
-    position:relative;
-    /* ❗カード内でコンパクトに */
-    width: min(720px, 100%);
-    /* 画面幅に応じて 180〜360px の間で可変 */
-    height: clamp(180px, 40vw, 360px);
-    margin: 8px auto 0;
-
-    border:1px solid var(--line);
-    border-radius:12px;
-    overflow:hidden;
-    background:#fff;
-  }
-
-  .slide{
-    position:absolute; inset:0;
-    opacity:0; visibility:hidden;
-    transition: opacity .35s ease, visibility .35s ease;
-    display:grid; grid-template-rows: 1fr auto;
-    background:#fff;
-  }
+  .slider{ position:relative; width:min(720px,100%); height:clamp(180px,40vw,360px); margin:8px auto 0;
+           border:1px solid var(--line); border-radius:12px; overflow:hidden; background:#fff; }
+  .slide{ position:absolute; inset:0; opacity:0; visibility:hidden; transition:opacity .35s ease, visibility .35s ease;
+          display:grid; grid-template-rows:1fr auto; background:#fff; }
   .slide.is-active{ opacity:1; visibility:visible; }
-
-  /* 画像はトリミングせず収めたいなら contain、切り抜いてでも埋めたいなら cover */
-  .slide img{
-    width:100%; height:100%;
-    object-fit: contain;   /* ← cover から変更して見出しに干渉しないように */
-    display:block; background:#f7fbff;
-  }
-
-  .slide figcaption{
-    position:absolute; left:12px; bottom:12px;
-    background: rgba(255,255,255,.94);
-    border:1px solid var(--line);
-    border-radius:10px;
-    padding:8px 10px;
-    box-shadow: 0 6px 20px rgba(42,125,225,.08);
-    max-width:min(560px, 90%);
-  }
-  .slide .step{
-    display:inline-block; font-size:12px; font-weight:700;
-    color:#fff; background:var(--brand);
-    padding:2px 8px; border-radius:999px; margin-right:8px;
-  }
+  .slide img{ width:100%; height:100%; object-fit:contain; display:block; background:#f7fbff; }
+  .slide figcaption{ position:absolute; left:12px; bottom:12px; background:rgba(255,255,255,.94);
+    border:1px solid var(--line); border-radius:10px; padding:8px 10px; box-shadow:0 6px 20px rgba(42,125,225,.08); max-width:min(560px,90%); }
+  .slide .step{ display:inline-block; font-size:12px; font-weight:700; color:#fff; background:var(--brand);
+    padding:2px 8px; border-radius:999px; margin-right:8px; }
   .slide strong{ font-weight:700; }
   .slide .caption{ margin:.25em 0 0; color:var(--muted); }
-
-  .nav{
-    position:absolute; top:50%; transform:translateY(-50%);
-    width:36px; height:36px; border-radius:999px;
-    border:1px solid var(--line); background:#fff;
-    box-shadow: var(--shadow);
-    cursor:pointer; font-size:20px; line-height:34px;
-    text-align:center; user-select:none;
-  }
+  .nav{ position:absolute; top:50%; transform:translateY(-50%); width:36px; height:36px; border-radius:999px;
+    border:1px solid var(--line); background:#fff; box-shadow:var(--shadow); cursor:pointer; font-size:20px; line-height:34px; text-align:center; user-select:none; }
   .nav:hover{ background:#f7fbff; }
-  .nav.prev{ left:8px; }
-  .nav.next{ right:8px; }
-
-  .dots{
-    position:absolute; left:0; right:0; bottom:8px;
-    display:flex; justify-content:center; gap:8px;
-  }
-  .dot{
-    width:8px; height:8px; border-radius:999px;
-    background:#cfe3ff; border:0; cursor:pointer;
-  }
+  .nav.prev{ left:8px; } .nav.next{ right:8px; }
+  .dots{ position:absolute; left:0; right:0; bottom:8px; display:flex; justify-content:center; gap:8px; }
+  .dot{ width:8px; height:8px; border-radius:999px; background:#cfe3ff; border:0; cursor:pointer; }
   .dot.is-active{ background:var(--brand); }
-
-  /* モバイルでさらに控えめに */
-  @media (max-width: 480px){
-    .slider{ height: clamp(160px, 44vw, 240px); }
+  @media (max-width:480px){
+    .slider{ height:clamp(160px,44vw,240px); }
     .nav{ width:32px; height:32px; font-size:18px; line-height:30px; }
     .slide figcaption{ padding:6px 8px; }
   }
 </style>
 
-
-<!-- スライダーJS（自動再生・ホバー停止・ドット/矢印/キー操作） -->
 <script>
 (function(){
   const slider = document.getElementById('guideSlider');
@@ -183,32 +154,24 @@
   const dots   = Array.from(slider.querySelectorAll('.dot'));
   const prev   = slider.querySelector('.prev');
   const next   = slider.querySelector('.next');
-
   let i = 0, timer = null, delay = 4200;
-
-  function show(n){
-    i = (n + slides.length) % slides.length;
-    slides.forEach((s, idx)=> s.classList.toggle('is-active', idx===i));
-    dots.forEach((d, idx)=> d.classList.toggle('is-active', idx===i));
+  function show(n){ i=(n+slides.length)%slides.length;
+    slides.forEach((s,idx)=>s.classList.toggle('is-active', idx===i));
+    dots.forEach((d,idx)=>d.classList.toggle('is-active', idx===i));
   }
-  function start(){ stop(); timer = setInterval(()=> show(i+1), delay); }
+  function start(){ stop(); timer=setInterval(()=>show(i+1), delay); }
   function stop(){ if(timer){ clearInterval(timer); timer=null; } }
-
   prev.addEventListener('click', ()=>{ show(i-1); start(); });
   next.addEventListener('click', ()=>{ show(i+1); start(); });
-  dots.forEach((d, idx)=> d.addEventListener('click', ()=>{ show(idx); start(); }));
-
+  dots.forEach((d,idx)=> d.addEventListener('click', ()=>{ show(idx); start(); }));
   slider.addEventListener('mouseenter', stop);
   slider.addEventListener('mouseleave', start);
   document.addEventListener('visibilitychange', ()=> document.hidden ? stop() : start());
-
-  // キーボード操作
   slider.tabIndex = 0;
   slider.addEventListener('keydown', (e)=>{
     if(e.key==='ArrowLeft'){ e.preventDefault(); show(i-1); start(); }
     if(e.key==='ArrowRight'){ e.preventDefault(); show(i+1); start(); }
   });
-
   show(0); start();
 })();
 </script>
