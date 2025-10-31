@@ -1,5 +1,4 @@
 # services/storage.py
-import io
 import os
 from typing import List, Optional
 
@@ -9,6 +8,7 @@ class Storage:
     def presign_get(self, key, expires: int) -> Optional[str]: ...
     def list_xlsx(self, prefix: str = "uploads/") -> List[str]: ...
     def open_xlsx_as_bytes(self, key: str) -> bytes: ...
+
 
 # --- R2 実装 ---
 class R2Storage(Storage):
@@ -38,33 +38,63 @@ class R2Storage(Storage):
         )
 
     def list_xlsx(self, prefix="uploads/"):
+        """
+        uploads/ 以下の .xlsx を **フルキーのまま** 返す。
+        階層を潰さない。大量ファイルに備えて継続トークン対応。
+        """
         out = []
-        resp = self.s3.list_objects_v2(Bucket=self.bucket, Prefix=prefix)
-        for obj in resp.get("Contents", []):
-            key = obj["Key"]
-            _, ext = os.path.splitext(key)
-            if ext.lower() == ".xlsx":
-                out.append((key, obj["LastModified"]))
+        continuation = None
+        while True:
+            kwargs = {"Bucket": self.bucket, "Prefix": prefix}
+            if continuation:
+                kwargs["ContinuationToken"] = continuation
+            resp = self.s3.list_objects_v2(**kwargs)
+            for obj in resp.get("Contents", []):
+                key = obj["Key"]
+                _, ext = os.path.splitext(key)
+                if ext.lower() == ".xlsx":
+                    out.append((key, obj["LastModified"]))
+            if resp.get("IsTruncated"):
+                continuation = resp.get("NextContinuationToken")
+            else:
+                break
         out.sort(key=lambda x: x[1], reverse=True)
-        return [os.path.basename(k) for k, _ in out]
+        # ✅ ここで basename にしない
+        return [k for k, _ in out]
 
     def open_xlsx_as_bytes(self, key: str) -> bytes:
+        """key は uploads/... を含むフルキー前提"""
         obj = self.s3.get_object(Bucket=self.bucket, Key=key)
         return obj["Body"].read()
 
+
 # --- ローカル実装 ---
 class LocalStorage(Storage):
+    """
+    ローカルは UPLOAD_FOLDER を uploads/ の実体ディレクトリとみなし、
+    返り値・引数ともに 'uploads/...' のキーで扱えるように合わせる。
+    """
     def __init__(self, upload_dir: str):
+        # 例: cfg.UPLOAD_FOLDER が 実ディレクトリ（…/uploads）を指す
         self.upload_dir = upload_dir
 
+    @staticmethod
+    def _strip_prefix(key: str) -> str:
+        # 'uploads/aaa/bbb.xlsx' -> 'aaa/bbb.xlsx'
+        if key.startswith("uploads/"):
+            return key[len("uploads/"):]
+        return key.lstrip("/")
+
     def upload(self, file_or_bytes, key, content_type="application/octet-stream"):
-        # key は "uploads/xxx.xlsx" 想定 → ローカルでは uploads/ 配下に落とす
-        filename = os.path.basename(key)
-        dst = os.path.join(self.upload_dir, filename)
-        if hasattr(file_or_bytes, "read"):
-            data = file_or_bytes.read()
-        else:
-            data = file_or_bytes
+        """
+        key 例:
+          - 'uploads/中1/Excelデータ/lesson1.xlsx'（推奨）
+          - '中1/Excelデータ/lesson1.xlsx'（許容）
+        """
+        rel = self._strip_prefix(key)  # '中1/Excelデータ/lesson1.xlsx'
+        dst = os.path.join(self.upload_dir, rel)
+        os.makedirs(os.path.dirname(dst), exist_ok=True)
+        data = file_or_bytes.read() if hasattr(file_or_bytes, "read") else file_or_bytes
         with open(dst, "wb") as f:
             f.write(data)
 
@@ -73,14 +103,30 @@ class LocalStorage(Storage):
         return None
 
     def list_xlsx(self, prefix="uploads/"):
-        from utils.files import list_xlsx_local
-        return list_xlsx_local(self.upload_dir)
+        """
+        uploads/ 配下を再帰で探索して、R2 と同じく **'uploads/...'** で返す。
+        更新日時降順（mtime）にソート。
+        """
+        out: list[str] = []
+        base = self.upload_dir  # 実体ディレクトリ（uploads の中身）
+        for root, _, files in os.walk(base):
+            for name in files:
+                if os.path.splitext(name)[1].lower() != ".xlsx":
+                    continue
+                full = os.path.join(root, name)
+                rel = os.path.relpath(full, base).replace("\\", "/")  # '中1/Excelデータ/lesson1.xlsx'
+                out.append(rel)
+        out.sort(key=lambda rel: os.path.getmtime(os.path.join(base, rel)), reverse=True)
+        # ✅ 返り値は 'uploads/...' に揃える
+        return [f"uploads/{rel}" for rel in out]
 
     def open_xlsx_as_bytes(self, key: str) -> bytes:
-        # key はファイル名想定（routes で basename 渡す）
-        path = os.path.join(self.upload_dir, os.path.basename(key))
+        """key は 'uploads/...' または相対パスを許容"""
+        rel = self._strip_prefix(key)
+        path = os.path.join(self.upload_dir, rel)
         with open(path, "rb") as f:
             return f.read()
+
 
 # --- ファクトリ ---
 def get_storage(cfg) -> Storage:
