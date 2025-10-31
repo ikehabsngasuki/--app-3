@@ -9,6 +9,7 @@
     <strong>number / word / meaning</strong> が必要です（順不同でOK）。
   </p>
 
+  {# 既定値: 単語帳/英和 #}
   {% set selected_mode = request.form.get('select_mode', 'single') %}
   {% set selected_radio_mode = request.form.get('mode', 'en-ja') %}
 
@@ -143,44 +144,74 @@
   .mode-block[hidden]{ display:none !important; }
 </style>
 
+{# ★ Jinja を JS から分離して JSON として埋め込む #}
+<script type="application/json" id="lessonTreeData">
+{{ lesson_tree | tojson | safe }}
+</script>
+
 <script>
 (function(){
-  const form = document.getElementById('makeForm');
-  const blocks = Array.from(document.querySelectorAll('.mode-block'));
-  const radioMode = form.querySelectorAll('input[name="select_mode"]');
-  const folderSel = document.getElementById('lesson_folder');
-  const filesSel  = document.getElementById('lesson_files');
+  var form      = document.getElementById('makeForm');
+  var blocks    = Array.prototype.slice.call(document.querySelectorAll('.mode-block'));
+  var radioMode = form.querySelectorAll('input[name="select_mode"]');
+  var folderSel = document.getElementById('lesson_folder');
+  var filesSel  = document.getElementById('lesson_files');
+
+  // JSON を安全に読み込み
+  var treeJsonEl = document.getElementById('lessonTreeData');
+  var tree = {};
+  try { tree = JSON.parse((treeJsonEl && treeJsonEl.textContent) || '{}'); } catch (e) { tree = {}; }
+
+  function getCheckedValue(name){
+    var nodes = form.querySelectorAll('input[name="'+name+'"]');
+    for (var i = 0; i < nodes.length; i++){
+      if (nodes[i].checked) return nodes[i].value;
+    }
+    return null;
+  }
 
   function toggleBlocks(){
-    const mode = form.querySelector('input[name="select_mode"]:checked')?.value || 'single';
-    blocks.forEach(b => {
-      const show = b.dataset.mode === mode;
-      b.hidden = !show;
-      // 非表示側の入力は disabled にして送信から除外
-      b.querySelectorAll('input, select, textarea').forEach(el => {
-        el.disabled = !show;
-      });
-    });
+    var mode = getCheckedValue('select_mode') || 'single';
+    for (var i = 0; i < blocks.length; i++){
+      var b = blocks[i];
+      var show = (b.getAttribute('data-mode') === mode);
+      if (show){ b.removeAttribute('hidden'); } else { b.setAttribute('hidden', 'hidden'); }
+      var inputs = b.querySelectorAll('input, select, textarea');
+      for (var j = 0; j < inputs.length; j++){ inputs[j].disabled = !show; }
+    }
   }
 
   // 初期化
   toggleBlocks();
-  radioMode.forEach(r => r.addEventListener('change', toggleBlocks));
+  for (var i = 0; i < radioMode.length; i++){ radioMode[i].addEventListener('change', toggleBlocks); }
 
-  // フォルダ選択でファイル候補を差し替え（ページ再描画なし版）
-  const tree = {{ lesson_tree | tojson | safe }};
-  function rebuildFiles(){
-    const folder = folderSel.value || "";
-    const options = tree[folder] || [];
-    filesSel.innerHTML = "";
-    options.forEach(rel => {
-      const opt = document.createElement('option');
-      opt.value = rel;
-      opt.textContent = rel.split('/').pop();
-      filesSel.appendChild(opt);
-    });
+  function lastSegment(rel){
+    var idx = rel.lastIndexOf('/');
+    return (idx >= 0) ? rel.slice(idx + 1) : rel;
   }
-  folderSel && folderSel.addEventListener('change', rebuildFiles);
+
+  function rebuildFiles(){
+    if (!folderSel || !filesSel) return;
+    var folder  = folderSel.value || "";
+    var options = tree[folder] || [];
+    // 既存の選択を保持
+    var selected = {};
+    for (var i = 0; i < filesSel.options.length; i++){
+      var op = filesSel.options[i];
+      if (op.selected) selected[op.value] = true;
+    }
+    filesSel.innerHTML = "";
+    for (var k = 0; k < options.length; k++){
+      var rel = options[k];
+      var opt = document.createElement('option');
+      opt.value = rel;
+      opt.textContent = lastSegment(rel);
+      if (selected[rel]) opt.selected = true;
+      filesSel.appendChild(opt);
+    }
+  }
+
+  if (folderSel){ folderSel.addEventListener('change', rebuildFiles); }
 })();
 </script>
 

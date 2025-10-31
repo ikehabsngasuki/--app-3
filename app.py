@@ -41,74 +41,80 @@ def allowed_download(name: str) -> bool:
     _, ext = os.path.splitext(name)
     return ext.lower() in cfg.ALLOWED_DOWNLOAD_EXTENSIONS
 
-def list_xlsx():
-    """従来: 単一ファイルモード用（uploads/直下）。storage 実装に依存。"""
-    return storage.list_xlsx(prefix="uploads/")
+def list_xlsx() -> list[str]:
+    """
+    単一ファイルモード用。storage.list_xlsx(prefix="uploads/") は
+    “uploads/.../*.xlsx” の **フルキー** を返す前提。
+    """
+    keys = storage.list_xlsx(prefix="uploads/") or []
+    # 念のためxlsxだけに
+    keys = [k for k in keys if k.lower().endswith(".xlsx")]
+    print(f"[FILES] count={len(keys)} sample={keys[:5]}", flush=True)
+    return keys
 
-# --- パス正規化 ---
 def norm_sep(path: str) -> str:
     return path.replace("\\", "/")
 
-# --- 日本語温存のサニタイズ（危険文字だけ除去） ---
 def sanitize_path_component(name: str) -> str:
     name = name.replace("\x00", "")
     name = name.strip().strip("/").strip("\\")
     name = unicodedata.normalize("NFKC", name)
     if name in (".", ".."):
         name = "_"
-    # ディレクトリセパレータは無効化（zip-slip対策）
     name = name.replace("/", "_").replace("\\", "_")
-    # 制御文字を除去
     name = re.sub(r"[\u0000-\u001F\u007F]", "", name)
     return name or "_"
 
-# --- ZIP エントリ名の文字化け救済（UTF-8 フラグ無し=cp932 前提で再解釈） ---
 def decode_zip_member_name(info: zipfile.ZipInfo) -> str:
-    """
-    UTF-8 フラグ(0x800)が無い場合、zipfile が cp437 とみなした文字列を
-    cp437 → cp932 でデコードし直して日本語名を復元する。
-    """
-    name = info.filename  # str
+    # UTF-8 フラグが無ければ cp437→cp932 再解釈
+    name = info.filename
     if (info.flag_bits & 0x800) != 0:
         return name
     try:
         raw = name.encode("cp437", errors="strict")
-        fixed = raw.decode("cp932", errors="strict")
-        return fixed
+        return raw.decode("cp932", errors="strict")
     except Exception:
         return name
 
 # --- レッスン配下の .xlsx を相対パスで列挙 ---
 def list_lessons_all() -> list[str]:
     """
-    R2：services/storage.py の list_xlsx(prefix) は basename を返すため階層は失われる。
-        → 現状は「直下扱い（フォルダなし）」としてファイル名のみ返る。
-    Local：uploads/lessons 以下を os.walk で再帰して相対パスを返す（階層維持）。
+    返り値は **LESSON_DIR からの相対パス**（例: '中1/Excelデータ/lesson1.xlsx'）。
+    R2: storage.list_xlsx は 'uploads/lessons/...' のフルキー → LESSON_DIR を剥がす。
+    Local: uploads/lessons の物理ディレクトリから再帰列挙。
     """
     if cfg.USE_R2:
-        raw = storage.list_xlsx(prefix=f"{LESSON_DIR}/") or []
-        # R2 実装は basename を返すのでそのまま扱う（= 直下扱い）
-        items = [f for f in raw if f.lower().endswith(".xlsx")]
-        print(f"[LESSONS:R2] files (count={len(items)}): sample={items[:5]}")
-        return items
+        full_keys = storage.list_xlsx(prefix=f"{LESSON_DIR}/") or []
+        rels: list[str] = []
+        prefix = f"{LESSON_DIR}/"
+        for k in full_keys:
+            if not k.lower().endswith(".xlsx"):
+                continue
+            if k.startswith(prefix):
+                rels.append(k[len(prefix):])
+            else:
+                # 念のため防御（想定外キー）
+                rels.append(k)
+        rels.sort(key=str.lower)
+        print(f"[LESSONS:R2] rels count={len(rels)} sample={rels[:5]}", flush=True)
+        return rels
     else:
-        root = LOCAL_LESSON_ROOT
-        items = []
-        if os.path.isdir(root):
-            for base, _, files in os.walk(root):
+        items: list[str] = []
+        if os.path.isdir(LOCAL_LESSON_ROOT):
+            for base, _, files in os.walk(LOCAL_LESSON_ROOT):
                 for fn in files:
-                    if fn.lower().endswith(".xlsx"):
-                        full = os.path.join(base, fn)
-                        rel = os.path.relpath(full, root)
-                        items.append(norm_sep(rel))
-        items.sort(key=lambda p: p.lower())
-        print(f"[LESSONS:LOCAL] files (count={len(items)}): sample={items[:5]}")
+                    if not fn.lower().endswith(".xlsx"):
+                        continue
+                    full = os.path.join(base, fn)
+                    rel = os.path.relpath(full, LOCAL_LESSON_ROOT)
+                    items.append(norm_sep(rel))
+        items.sort(key=str.lower)
+        print(f"[LESSONS:LOCAL] rels count={len(items)} sample={items[:5]}", flush=True)
         return items
 
-def build_lesson_tree():
+def build_lesson_tree() -> dict[str, list[str]]:
     """
-    lessons配下のフォルダ -> ファイル一覧（相対パス）の辞書に変換。
-    直下ファイルは folder_key=""（空文字）。
+    { フォルダ相対パス("")含む : [ 相対パス(ファイル) ... ] }
     """
     items = list_lessons_all()
     tree: dict[str, list[str]] = {}
@@ -117,9 +123,8 @@ def build_lesson_tree():
         folder = "" if len(parts) == 1 else "/".join(parts[:-1])
         tree.setdefault(folder, []).append(rel)
     for k in tree:
-        tree[k].sort(key=lambda p: p.lower())
-    # デバッグ
-    print(f"[LESSON-TREE] folders={len(tree)} keys={list(tree.keys())[:6]}")
+        tree[k].sort(key=str.lower)
+    print(f"[LESSON-TREE] folders={len(tree)} keys={list(tree.keys())[:6]}", flush=True)
     return dict(sorted(tree.items(), key=lambda kv: kv[0].lower()))
 
 # ========= ルーティング =========
@@ -132,7 +137,7 @@ def index():
 @app.route("/upload", methods=["GET", "POST"])
 def upload():
     if request.method == "POST":
-        # --- 従来: 単一 .xlsx ---
+        # --- 単一 .xlsx ---
         if "file" in request.files and request.files["file"] and request.files["file"].filename:
             file = request.files["file"]
             filename = safe_filename(file.filename)
@@ -141,6 +146,7 @@ def upload():
                 flash(".xlsx のみアップロード可です。")
                 return redirect(url_for("upload"))
             try:
+                # 既存どおり uploads/ 直下（フォルダを増やしたい場合はここで調整）
                 key = f"uploads/{filename}"
                 storage.upload(file, key, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
                 flash(f"アップロードが完了しました: {filename}")
@@ -173,21 +179,17 @@ def upload():
                         file_bytes = z.read(info)
 
                         if cfg.USE_R2:
-                            # R2: オブジェクトキーは階層付きで保存
                             key = f"{LESSON_DIR}/{rel_path}"
                             storage.upload(file_bytes, key, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
                             saved_keys.append(key)
                         else:
-                            # Local: 物理ディレクトリを作って書き込む（階層保持）
                             dst = os.path.join(LOCAL_LESSON_ROOT, *rel_path.split("/"))
                             os.makedirs(os.path.dirname(dst), exist_ok=True)
                             with open(dst, "wb") as f:
                                 f.write(file_bytes)
                             saved_keys.append(dst)
 
-                print("[ZIP] saved (first 8):")
-                for i, k in enumerate(saved_keys[:8]):
-                    print(f"  [{i}] {k}")
+                print("[ZIP] saved (first 8):", *saved_keys[:8], sep="\n  ")
                 flash(f"レッスンZIPを展開しました（{len(saved_keys)} 件の .xlsx）" if saved_keys else "ZIP内に .xlsx が見つかりませんでした。")
             except Exception as e:
                 flash(f"ZIPの展開に失敗しました: {e}")
@@ -202,18 +204,17 @@ def upload():
 
 @app.route("/make", methods=["GET", "POST"])
 def make():
-    files = list_xlsx()
-    lesson_tree = build_lesson_tree()
+    files = list_xlsx()                  # ここは **フルキー**（uploads/...）
+    lesson_tree = build_lesson_tree()    # ここは **相対パス**（LESSON_DIR から）
 
     if request.method == "POST":
         select_mode   = request.form.get("select_mode", "single")
-        filename      = request.form.get("filename", "")
-        lesson_folder = request.form.get("lesson_folder", "")      # "" は直下
-        lesson_files  = request.form.getlist("lesson_files")       # 相対パス
+        filename      = request.form.get("filename", "")           # ← 単一モード: フルキー
+        lesson_folder = request.form.get("lesson_folder", "")      # ← 相対フォルダ
+        lesson_files  = request.form.getlist("lesson_files")       # ← 相対ファイル群
         num_questions = request.form.get("num_questions", "")
         mode          = request.form.get("mode", "en-ja")
 
-        # 出題数チェック
         try:
             num_questions = int(num_questions)
         except ValueError:
@@ -225,7 +226,7 @@ def make():
 
         try:
             if select_mode == "lessons":
-                # フォルダ配下のファイルのみ許容
+                # 相対ファイルの正当性チェック
                 valid_relpaths = set(lesson_tree.get(lesson_folder, []))
                 picked = [p for p in lesson_files if p in valid_relpaths]
                 if not picked:
@@ -235,7 +236,7 @@ def make():
                 frames = []
                 for rel in picked:
                     if cfg.USE_R2:
-                        key = f"{LESSON_DIR}/{rel}"
+                        key = f"{LESSON_DIR}/{rel}"       # R2: フルキー化
                         data = storage.open_xlsx_as_bytes(key)
                     else:
                         path = os.path.join(LOCAL_LESSON_ROOT, *rel.split("/"))
@@ -262,8 +263,9 @@ def make():
                     return redirect(url_for("make"))
 
                 df = pd.concat(frames, axis=0, ignore_index=True)
+                # 複数レッスンは番号レンジ表記なし
                 base_name_for_title = f"{lesson_folder or '（直下）'}: " + ", ".join(os.path.basename(p) for p in picked)
-                title_range_part = None  # レンジ表示なし（番号は各レッスンでリセットされる想定）
+                title_range_part = None
 
             else:
                 # 単一ファイル（番号範囲あり）
@@ -281,8 +283,8 @@ def make():
                     flash("不正なファイル名です。")
                     return redirect(url_for("make"))
 
-                xlsx_key = f"uploads/{filename}"
-                data = storage.open_xlsx_as_bytes(xlsx_key)
+                # filename は **フルキー**（uploads/...）
+                data = storage.open_xlsx_as_bytes(filename)
                 df = pd.read_excel(io.BytesIO(data), engine="openpyxl")
 
                 required = {"number", "word", "meaning"}
@@ -303,7 +305,8 @@ def make():
                     flash("指定範囲に該当する問題がありません。")
                     return redirect(url_for("make"))
 
-                base_name_for_title, _ = os.path.splitext(filename)
+                # タイトルはベース名のみ
+                base_name_for_title = os.path.splitext(os.path.basename(filename))[0]
                 title_range_part = f"No.{start_num}–{end_num}"
 
         except Exception as e:
