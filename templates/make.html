@@ -5,208 +5,183 @@
 <div class="card" style="display:grid; gap:16px;">
   <h2>問題作成</h2>
   <p class="label-desc">
-    単一ファイル または レッスン（ZIP展開済み）から PDF を生成します。<br>
-    ヘッダーは <strong>number / word / meaning</strong> が必要です（順不同でOK）。
+    出題元を選び、出題数などを指定してPDFを生成します。ヘッダーは
+    <strong>number / word / meaning</strong> が必要です（順不同でOK）。
   </p>
 
-  {% set selected_mode = request.form.get('mode', 'en-ja') %}
-  {% set select_mode   = request.form.get('select_mode', 'single') %}
-  {% set picked_folder = request.form.get('lesson_folder', '') %}
-  {% set picked_files  = request.form.getlist('lesson_files') %}
+  {% set selected_mode = request.form.get('select_mode', 'single') %}
+  {% set selected_radio_mode = request.form.get('mode', 'en-ja') %}
 
-  <form action="{{ url_for('make') }}" method="post" class="stack">
-
-    <!-- 出題元の選択方法 -->
+  <form action="{{ url_for('make') }}" method="post" class="stack" id="makeForm">
+    <!-- 出題元の選択 -->
     <div class="field">
-      <label>出題元の選択方法</label>
+      <label>出題元</label>
       <div>
         <label>
           <input type="radio" name="select_mode" value="single"
-                 {% if select_mode == 'single' %}checked{% endif %}>
-          単語帳から作成
+                 {% if selected_mode == 'single' %}checked{% endif %}>
+          単語帳（単一ファイル）
         </label>
         <label style="margin-left:12px;">
           <input type="radio" name="select_mode" value="lessons"
-                 {% if select_mode == 'lessons' %}checked{% endif %}>
-          教科書準拠テキストから作成
+                 {% if selected_mode == 'lessons' %}checked{% endif %}>
+          レッスン（フォルダ内の複数ファイル）
         </label>
       </div>
     </div>
 
-    <!-- 単一ファイル -->
-    <div class="field js-single">
-      <label for="filename">単語帳を選択</label>
-      <select id="filename" name="filename" class="input" {% if not files %}disabled{% endif %}>
-        {% for f in files %}
-          <option value="{{ f }}" {% if request.form.get('filename') == f %}selected{% endif %}>
-            {{ f }}
-          </option>
-        {% endfor %}
-      </select>
-      {% if not files %}
-        <p class="label-desc" style="margin-top:6px;">
-          まだファイルがありません。先に <a href="{{ url_for('upload') }}">アップロード</a> してください。
-        </p>
-      {% endif %}
-    </div>
+    <!-- 単語帳（単一ファイル）ブロック -->
+    <fieldset class="mode-block" id="block-single" data-mode="single">
+      <legend>単語帳（単一ファイル）</legend>
+      <div class="field">
+        <label for="filename">ファイル</label>
+        <select id="filename" name="filename" class="input">
+          {% for f in files %}
+            <option value="{{ f }}" {% if request.form.get('filename') == f %}selected{% endif %}>{{ f }}</option>
+          {% endfor %}
+        </select>
+        {% if not files %}
+          <p class="label-desc" style="margin-top:6px;">
+            ファイルがありません。先に <a href="{{ url_for('upload') }}">アップロード</a> してください。
+          </p>
+        {% endif %}
+      </div>
 
-    <!-- レッスン：フォルダ→ファイル複数選択 -->
-    <div class="field js-lessons" hidden>
-      <label for="lesson_folder">学年を選択</label>
-      <select id="lesson_folder" name="lesson_folder" class="input" {% if not lesson_tree %}disabled{% endif %}>
-        {% for folder, rels in lesson_tree.items() %}
-          <option value="{{ folder }}" {% if picked_folder == folder %}selected{% endif %}>
-            {{ folder if folder else '（直下）' }}
-          </option>
-        {% endfor %}
-      </select>
-      {% if not lesson_tree %}
-        <p class="label-desc" style="margin-top:6px;">レッスンファイルがありません。<a href="{{ url_for('upload') }}">アップロード</a>へ。</p>
-      {% endif %}
+      <div class="twocol">
+        <div class="field">
+          <label for="start_num">開始番号</label>
+          <input id="start_num" class="input" type="number" name="start_num"
+                 min="1" placeholder="例: 1" value="{{ request.form.get('start_num','') }}">
+        </div>
+        <div class="field">
+          <label for="end_num">終了番号</label>
+          <input id="end_num" class="input" type="number" name="end_num"
+                 min="1" placeholder="例: 100" value="{{ request.form.get('end_num','') }}">
+        </div>
+      </div>
+      <p class="label-desc">※この範囲内からランダム抽出されます。</p>
+    </fieldset>
 
-      <div style="margin-top:10px;">
-        <label for="lesson_files">レッスンを選択（複数選択可）</label>
-        <select id="lesson_files" name="lesson_files" class="input" multiple size="10" {% if not lesson_tree %}disabled{% endif %}>
-          {# すべてのファイルを data-folder 属性付きで並べ、JSで絞り込み #}
-          {% for folder, rels in lesson_tree.items() %}
-            {% for rel in rels %}
-              <option value="{{ rel }}"
-                      data-folder="{{ folder }}"
-                      {% if rel in picked_files %}selected{% endif %}>
-                {{ rel.split('/')[-1] }}
-              </option>
-            {% endfor %}
+    <!-- レッスン（複数ファイル）ブロック -->
+    <fieldset class="mode-block" id="block-lessons" data-mode="lessons">
+      <legend>レッスン（フォルダ内の複数ファイル）</legend>
+
+      <div class="field">
+        <label for="lesson_folder">フォルダ</label>
+        <select id="lesson_folder" name="lesson_folder" class="input">
+          {% for folder, files_in in lesson_tree.items() %}
+            <option value="{{ folder }}" {% if request.form.get('lesson_folder','') == folder %}selected{% endif %}>
+              {{ folder if folder else '（直下）' }}
+            </option>
+          {% endfor %}
+        </select>
+        <p class="label-desc" style="margin-top:6px;">フォルダを選ぶと、その中の .xlsx を下で選択できます。</p>
+      </div>
+
+      <div class="field">
+        <label for="lesson_files">ファイル（複数選択可）</label>
+        <select id="lesson_files" name="lesson_files" class="input" multiple size="8">
+          {# 初期表示：選択中フォルダのファイルだけを描画 #}
+          {% set current_folder = request.form.get('lesson_folder','') %}
+          {% for rel in lesson_tree.get(current_folder, []) %}
+            <option value="{{ rel }}"
+              {% if rel in request.form.getlist('lesson_files') %}selected{% endif %}>
+              {{ rel.split('/')[-1] }}
+            </option>
           {% endfor %}
         </select>
         <p class="label-desc" style="margin-top:6px;">
-          Ctrl/Cmd で複数選択。選択肢は上のフォルダに連動します。
+          レッスン複数選択モードでは番号範囲の指定は不要です。選択したファイル群の中からランダム抽出します。
         </p>
       </div>
-    </div>
+    </fieldset>
 
-    <!-- 出題モード -->
+    <!-- 共通：出題モード / 出題数 -->
     <div class="field">
       <label>出題モード</label>
       <div>
         <label>
           <input type="radio" name="mode" value="en-ja"
-                 {% if selected_mode == 'en-ja' %}checked{% endif %}>
+                 {% if selected_radio_mode == 'en-ja' %}checked{% endif %}>
           英 → 和（英和）
         </label>
         <label style="margin-left:12px;">
           <input type="radio" name="mode" value="ja-en"
-                 {% if selected_mode == 'ja-en' %}checked{% endif %}>
+                 {% if selected_radio_mode == 'ja-en' %}checked{% endif %}>
           和 → 英（和英）
         </label>
       </div>
-    </div>
-
-    <!-- 単一ファイル時：番号範囲 -->
-    <div class="field js-range">
-      <label for="start_num">開始番号</label>
-      <input id="start_num" class="input" type="number" name="start_num" min="1"
-             placeholder="例: 1" value="{{ request.form.get('start_num', '') }}" />
-    </div>
-
-    <div class="field js-range">
-      <label for="end_num">終了番号</label>
-      <input id="end_num" class="input" type="number" name="end_num" min="1"
-             placeholder="例: 100" value="{{ request.form.get('end_num', '') }}" />
       <p class="label-desc" style="margin-top:6px;">
-        ※ レッスン複数選択モードでは番号範囲は無視されます（全件プールからランダム抽出）。
+        英和：問題に <code>word</code>、解答に <code>meaning</code> を表示。<br>
+        和英：問題に <code>meaning</code>、解答に <code>word</code> を表示。
       </p>
     </div>
 
-    <!-- 出題数（全モードで必須） -->
     <div class="field">
       <label for="num_questions">出題数</label>
       <input id="num_questions" class="input" type="number" name="num_questions" min="1"
-             placeholder="例: 20" value="{{ request.form.get('num_questions', '') }}" required />
+             placeholder="例: 20" value="{{ request.form.get('num_questions','') }}" required>
       <p class="label-desc" style="margin-top:6px;">
-        レッスン複数選択モード：選ばれたファイル全体からランダムに抽出します。<br>
-        単一ファイルモード：番号範囲で絞り込んだ中からランダムに抽出します。
+        ・単語帳モード：指定した番号範囲から抽出します。<br>
+        ・レッスンモード：選択した複数ファイルを合算し、その中から抽出します。
       </p>
     </div>
 
     <div>
-      <button type="submit" class="btn btn-primary">PDFを作成</button>
+      <button type="submit" class="btn btn-primary" {% if not files and not lesson_tree %}disabled{% endif %}>
+        PDFを作成
+      </button>
       <a class="btn btn-outline" href="{{ url_for('download') }}" style="margin-left:6px;">ダウンロードへ</a>
     </div>
   </form>
 </div>
 
+<style>
+  .twocol{ display:grid; grid-template-columns: 1fr 1fr; gap:12px; }
+  @media (max-width:640px){ .twocol{ grid-template-columns: 1fr; } }
+  .mode-block{ border:1px solid var(--line); border-radius:10px; padding:12px; }
+  .mode-block[hidden]{ display:none !important; }
+</style>
+
 <script>
-  // 単一/レッスンの表示切替 & フォルダに応じてファイルを絞り込み
-  (function () {
-    const singleWrap  = document.querySelector('.js-single');
-    const lessonsWrap = document.querySelector('.js-lessons');
-    const rangeWraps  = document.querySelectorAll('.js-range');
-    const radios      = document.querySelectorAll('input[name="select_mode"]');
-    const filenameSel = document.getElementById('filename');
-    const folderSel   = document.getElementById('lesson_folder');
-    const filesSel    = document.getElementById('lesson_files');
+(function(){
+  const form = document.getElementById('makeForm');
+  const blocks = Array.from(document.querySelectorAll('.mode-block'));
+  const radioMode = form.querySelectorAll('input[name="select_mode"]');
+  const folderSel = document.getElementById('lesson_folder');
+  const filesSel  = document.getElementById('lesson_files');
 
-    // すべての <option> をキャッシュ（data-folder 付き）
-    const allFileOptions = filesSel ? Array.from(filesSel.options).map(opt => ({
-      value: opt.value,
-      text:  opt.text,
-      folder: opt.getAttribute('data-folder') || '',
-      selected: opt.selected
-    })) : [];
-
-    function updateMode() {
-      const v = document.querySelector('input[name="select_mode"]:checked')?.value || 'single';
-      const isSingle = (v === 'single');
-
-      singleWrap.hidden  = !isSingle;
-      lessonsWrap.hidden =  isSingle;
-
-      if (filenameSel) filenameSel.disabled = !isSingle;
-      if (folderSel)   folderSel.disabled   =  isSingle;
-      if (filesSel)    filesSel.disabled    =  isSingle;
-
-      // 番号範囲の表示/無効化
-      rangeWraps.forEach(wrap => {
-        wrap.hidden = !isSingle;
-        const input = wrap.querySelector('input');
-        if (input) input.disabled = !isSingle;
+  function toggleBlocks(){
+    const mode = form.querySelector('input[name="select_mode"]:checked')?.value || 'single';
+    blocks.forEach(b => {
+      const show = b.dataset.mode === mode;
+      b.hidden = !show;
+      // 非表示側の入力は disabled にして送信から除外
+      b.querySelectorAll('input, select, textarea').forEach(el => {
+        el.disabled = !show;
       });
+    });
+  }
 
-      if (!isSingle) filterFiles(); // レッスンモードなら初回反映
-    }
+  // 初期化
+  toggleBlocks();
+  radioMode.forEach(r => r.addEventListener('change', toggleBlocks));
 
-    function filterFiles() {
-      if (!folderSel || !filesSel) return;
-      const targetFolder = folderSel.value || "";
-
-      // 現在の選択値を保存
-      const prevSelected = new Set(Array.from(filesSel.selectedOptions).map(o => o.value));
-
-      // 一旦空にして対象のみ追加
-      filesSel.innerHTML = "";
-      const subset = allFileOptions.filter(o => o.folder === targetFolder);
-
-      subset.forEach(o => {
-        const opt = document.createElement('option');
-        opt.value = o.value;
-        opt.textContent = o.text;
-        opt.setAttribute('data-folder', o.folder);
-        // 以前選択していたものは再選択
-        if (prevSelected.has(o.value)) opt.selected = true;
-        filesSel.appendChild(opt);
-      });
-    }
-
-    radios.forEach(r => r.addEventListener('change', updateMode));
-    if (folderSel) folderSel.addEventListener('change', filterFiles);
-
-    // 初期状態の反映
-    updateMode();
-    // 直近のPOSTでフォルダが選ばれていた場合は、そのフォルダでフィルタ
-    if (folderSel && filesSel && document.querySelector('input[name="select_mode"]:checked')?.value === 'lessons') {
-      filterFiles();
-    }
-  })();
+  // フォルダ選択でファイル候補を差し替え（ページ再描画なし版）
+  const tree = {{ lesson_tree | tojson | safe }};
+  function rebuildFiles(){
+    const folder = folderSel.value || "";
+    const options = tree[folder] || [];
+    filesSel.innerHTML = "";
+    options.forEach(rel => {
+      const opt = document.createElement('option');
+      opt.value = rel;
+      opt.textContent = rel.split('/').pop();
+      filesSel.appendChild(opt);
+    });
+  }
+  folderSel && folderSel.addEventListener('change', rebuildFiles);
+})();
 </script>
 
 {% endblock %}
