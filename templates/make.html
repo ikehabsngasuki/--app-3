@@ -166,28 +166,13 @@
   const folderSel = document.getElementById('lesson_folder');
   const filesSel  = document.getElementById('lesson_files');
 
-  function toggleBlocks(){
-    const modeInput = form.querySelector('input[name="select_mode"]:checked');
-    const mode = modeInput ? modeInput.value : 'single';
-    blocks.forEach(b => {
-      const show = b.dataset.mode === mode;
-      b.hidden = !show;
-      // 非表示側の入力は disabled にして送信から除外
-      b.querySelectorAll('input, select, textarea').forEach(el => {
-        el.disabled = !show;
-      });
-    });
-  }
-
-  // 初期化
-  toggleBlocks();
-  radioMode.forEach(r => r.addEventListener('change', toggleBlocks));
-
-  // フォルダ選択でファイル候補を差し替え（ページ再描画なし）
+  // Jinja から渡すフォルダ→ファイルの辞書
   const tree = {{ lesson_tree | tojson | safe }};
+
+  // 選択フォルダのファイル候補を再構築
   function rebuildFiles(){
     if (!folderSel || !filesSel) return;
-    const folder = folderSel.value || "";
+    const folder  = folderSel.value || "";
     const options = tree[folder] || [];
     filesSel.innerHTML = "";
     options.forEach(rel => {
@@ -196,9 +181,41 @@
       opt.textContent = rel.split('/').pop(); // ベース名表示
       filesSel.appendChild(opt);
     });
+    // 初期状態で先頭を選択状態にしておくと直感的
+    if (filesSel.options.length){
+      filesSel.options[0].selected = true;
+    }
   }
+
+  // モード切替で対応ブロックの表示/非表示と有効状態を制御
+  function toggleBlocks(){
+    const mode = (form.querySelector('input[name="select_mode"]:checked') || {}).value || 'single';
+    blocks.forEach(b => {
+      const show = b.dataset.mode === mode;
+      b.hidden = !show;
+      // 非表示側の入力は送信させないために disable
+      b.querySelectorAll('input, select, textarea').forEach(el => {
+        el.disabled = !show;
+      });
+    });
+    // レッスンに切り替えた直後に一覧を構築
+    if (mode === 'lessons') {
+      rebuildFiles();
+    }
+  }
+
+  // 初期化
+  toggleBlocks();
+  // 初期選択がレッスンなら最初から一覧を構築
+  if ((form.querySelector('input[name="select_mode"]:checked') || {}).value === 'lessons') {
+    rebuildFiles();
+  }
+
+  // 監視
+  radioMode.forEach(r => r.addEventListener('change', toggleBlocks));
   if (folderSel) folderSel.addEventListener('change', rebuildFiles);
 })();
 </script>
+
 
 {% endblock %}
