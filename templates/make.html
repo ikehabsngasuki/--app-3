@@ -9,16 +9,9 @@
     <strong>number / word / meaning</strong> が必要です（順不同でOK）。
   </p>
 
+  {# 直近送信値（初期表示用） #}
   {% set selected_mode = request.form.get('select_mode', 'single') %}
   {% set selected_radio_mode = request.form.get('mode', 'en-ja') %}
-
-  {# ★ lessons配下のベース名を収集（例: "lesson1.xlsx"） #}
-  {% set ns = namespace(lesson_basenames=[]) %}
-  {% for _folder, lfiles in lesson_tree.items() %}
-    {% for rel in lfiles %}
-      {% set _ = ns.lesson_basenames.append(rel.split('/')[-1]) %}
-    {% endfor %}
-  {% endfor %}
 
   <form action="{{ url_for('make') }}" method="post" class="stack" id="makeForm">
     <!-- 出題元の選択 -->
@@ -38,19 +31,27 @@
       </div>
     </div>
 
-    <!-- 単語帳（単一ファイル）ブロック：lessons配下は除外 -->
+    <!-- 単語帳（単一ファイル）ブロック -->
     <fieldset class="mode-block" id="block-single" data-mode="single">
       <legend>単語帳（単一ファイル）</legend>
+
       <div class="field">
         <label for="filename">ファイル</label>
         <select id="filename" name="filename" class="input">
           {% for f in files %}
-            {# パスを / 区切りに正規化 #}
-            {% set f_norm = f|replace('\\', '/') %}
-            {% set base   = f_norm.split('/')[-1] %}
-            {# 「lessons/ を含む」または「lessons側のベース名と一致」なら除外 #}
-            {% if ('/lessons/' not in f_norm) and (base not in ns.lesson_basenames) %}
-              <option value="{{ f }}" {% if request.form.get('filename') == f %}selected{% endif %}>{{ f }}</option>
+            {# パス正規化 #}
+            {% set f_norm = f|replace('\\','/') %}
+            {# lessons 配下は非表示 #}
+            {% if '/lessons/' not in f_norm %}
+              {# 表示ラベルから先頭 uploads/ を除去し、末尾のベース名だけ見せる #}
+              {% set label = f_norm %}
+              {% if label.startswith('uploads/') %}
+                {% set label = label[8:] %}
+              {% endif %}
+              {% set base = label.split('/')[-1] %}
+              <option value="{{ f }}" {% if request.form.get('filename') == f %}selected{% endif %}>
+                {{ base }}
+              </option>
             {% endif %}
           {% endfor %}
         </select>
@@ -95,6 +96,7 @@
       <div class="field">
         <label for="lesson_files">ファイル（複数選択可）</label>
         <select id="lesson_files" name="lesson_files" class="input" multiple size="8">
+          {# 初期表示：選択中フォルダのファイルだけを描画（ベース名表示） #}
           {% set current_folder = request.form.get('lesson_folder','') %}
           {% for rel in lesson_tree.get(current_folder, []) %}
             <option value="{{ rel }}"
@@ -156,65 +158,46 @@
   .mode-block[hidden]{ display:none !important; }
 </style>
 
-<script type="application/json" id="lessonTreeData">
-{{ lesson_tree | tojson | safe }}
-</script>
-
 <script>
 (function(){
-  var form      = document.getElementById('makeForm');
-  var blocks    = Array.prototype.slice.call(document.querySelectorAll('.mode-block'));
-  var radioMode = form.querySelectorAll('input[name="select_mode"]');
-  var folderSel = document.getElementById('lesson_folder');
-  var filesSel  = document.getElementById('lesson_files');
-
-  var tree = {};
-  try { tree = JSON.parse((document.getElementById('lessonTreeData') || {}).textContent || '{}'); } catch(e){}
-
-  function getCheckedValue(name){
-    var nodes = form.querySelectorAll('input[name="'+name+'"]');
-    for (var i = 0; i < nodes.length; i++){ if (nodes[i].checked) return nodes[i].value; }
-    return null;
-  }
+  const form = document.getElementById('makeForm');
+  const blocks = Array.from(document.querySelectorAll('.mode-block'));
+  const radioMode = form.querySelectorAll('input[name="select_mode"]');
+  const folderSel = document.getElementById('lesson_folder');
+  const filesSel  = document.getElementById('lesson_files');
 
   function toggleBlocks(){
-    var mode = getCheckedValue('select_mode') || 'single';
-    for (var i = 0; i < blocks.length; i++){
-      var b = blocks[i];
-      var show = (b.getAttribute('data-mode') === mode);
-      if (show){ b.removeAttribute('hidden'); } else { b.setAttribute('hidden','hidden'); }
-      var inputs = b.querySelectorAll('input, select, textarea');
-      for (var j = 0; j < inputs.length; j++){ inputs[j].disabled = !show; }
-    }
+    const modeInput = form.querySelector('input[name="select_mode"]:checked');
+    const mode = modeInput ? modeInput.value : 'single';
+    blocks.forEach(b => {
+      const show = b.dataset.mode === mode;
+      b.hidden = !show;
+      // 非表示側の入力は disabled にして送信から除外
+      b.querySelectorAll('input, select, textarea').forEach(el => {
+        el.disabled = !show;
+      });
+    });
   }
 
+  // 初期化
   toggleBlocks();
-  for (var i = 0; i < radioMode.length; i++){ radioMode[i].addEventListener('change', toggleBlocks); }
+  radioMode.forEach(r => r.addEventListener('change', toggleBlocks));
 
-  function lastSegment(rel){
-    var idx = rel.lastIndexOf('/');
-    return (idx >= 0) ? rel.slice(idx+1) : rel;
-  }
+  // フォルダ選択でファイル候補を差し替え（ページ再描画なし）
+  const tree = {{ lesson_tree | tojson | safe }};
   function rebuildFiles(){
     if (!folderSel || !filesSel) return;
-    var folder  = folderSel.value || "";
-    var options = tree[folder] || [];
-    var selected = {};
-    for (var i = 0; i < filesSel.options.length; i++){
-      var op = filesSel.options[i];
-      if (op.selected) selected[op.value] = true;
-    }
+    const folder = folderSel.value || "";
+    const options = tree[folder] || [];
     filesSel.innerHTML = "";
-    for (var k = 0; k < options.length; k++){
-      var rel = options[k];
-      var opt = document.createElement('option');
+    options.forEach(rel => {
+      const opt = document.createElement('option');
       opt.value = rel;
-      opt.textContent = lastSegment(rel);
-      if (selected[rel]) opt.selected = true;
+      opt.textContent = rel.split('/').pop(); // ベース名表示
       filesSel.appendChild(opt);
-    }
+    });
   }
-  if (folderSel){ folderSel.addEventListener('change', rebuildFiles); }
+  if (folderSel) folderSel.addEventListener('change', rebuildFiles);
 })();
 </script>
 
