@@ -45,7 +45,11 @@
         <label for="filename">ファイル</label>
         <select id="filename" name="filename" class="input">
           {% for f in files %}
-            {% if f not in ns.lesson_basenames %}
+            {# パスを / 区切りに正規化 #}
+            {% set f_norm = f|replace('\\', '/') %}
+            {% set base   = f_norm.split('/')[-1] %}
+            {# 「lessons/ を含む」または「lessons側のベース名と一致」なら除外 #}
+            {% if ('/lessons/' not in f_norm) and (base not in ns.lesson_basenames) %}
               <option value="{{ f }}" {% if request.form.get('filename') == f %}selected{% endif %}>{{ f }}</option>
             {% endif %}
           {% endfor %}
@@ -72,7 +76,7 @@
       <p class="label-desc">※この範囲内からランダム抽出されます。</p>
     </fieldset>
 
-    <!-- レッスン（複数ファイル）ブロック（従来どおり） -->
+    <!-- レッスン（複数ファイル）ブロック -->
     <fieldset class="mode-block" id="block-lessons" data-mode="lessons">
       <legend>レッスン（フォルダ内の複数ファイル）</legend>
 
@@ -152,7 +156,6 @@
   .mode-block[hidden]{ display:none !important; }
 </style>
 
-{# JSON埋め込み（既存のJS用）。ここは前回のまま #}
 <script type="application/json" id="lessonTreeData">
 {{ lesson_tree | tojson | safe }}
 </script>
@@ -165,9 +168,8 @@
   var folderSel = document.getElementById('lesson_folder');
   var filesSel  = document.getElementById('lesson_files');
 
-  var treeJsonEl = document.getElementById('lessonTreeData');
   var tree = {};
-  try { tree = JSON.parse((treeJsonEl && treeJsonEl.textContent) || '{}'); } catch (e) { tree = {}; }
+  try { tree = JSON.parse((document.getElementById('lessonTreeData') || {}).textContent || '{}'); } catch(e){}
 
   function getCheckedValue(name){
     var nodes = form.querySelectorAll('input[name="'+name+'"]');
@@ -180,21 +182,19 @@
     for (var i = 0; i < blocks.length; i++){
       var b = blocks[i];
       var show = (b.getAttribute('data-mode') === mode);
-      if (show){ b.removeAttribute('hidden'); } else { b.setAttribute('hidden', 'hidden'); }
+      if (show){ b.removeAttribute('hidden'); } else { b.setAttribute('hidden','hidden'); }
       var inputs = b.querySelectorAll('input, select, textarea');
       for (var j = 0; j < inputs.length; j++){ inputs[j].disabled = !show; }
     }
   }
 
-  // 初期化
   toggleBlocks();
   for (var i = 0; i < radioMode.length; i++){ radioMode[i].addEventListener('change', toggleBlocks); }
 
   function lastSegment(rel){
     var idx = rel.lastIndexOf('/');
-    return (idx >= 0) ? rel.slice(idx + 1) : rel;
+    return (idx >= 0) ? rel.slice(idx+1) : rel;
   }
-
   function rebuildFiles(){
     if (!folderSel || !filesSel) return;
     var folder  = folderSel.value || "";
@@ -214,7 +214,6 @@
       filesSel.appendChild(opt);
     }
   }
-
   if (folderSel){ folderSel.addEventListener('change', rebuildFiles); }
 })();
 </script>
