@@ -9,9 +9,16 @@
     <strong>number / word / meaning</strong> が必要です（順不同でOK）。
   </p>
 
-  {# 既定値: 単語帳/英和 #}
   {% set selected_mode = request.form.get('select_mode', 'single') %}
   {% set selected_radio_mode = request.form.get('mode', 'en-ja') %}
+
+  {# ★ lessons配下のベース名を収集（例: "lesson1.xlsx"） #}
+  {% set ns = namespace(lesson_basenames=[]) %}
+  {% for _folder, lfiles in lesson_tree.items() %}
+    {% for rel in lfiles %}
+      {% set _ = ns.lesson_basenames.append(rel.split('/')[-1]) %}
+    {% endfor %}
+  {% endfor %}
 
   <form action="{{ url_for('make') }}" method="post" class="stack" id="makeForm">
     <!-- 出題元の選択 -->
@@ -31,14 +38,16 @@
       </div>
     </div>
 
-    <!-- 単語帳（単一ファイル）ブロック -->
+    <!-- 単語帳（単一ファイル）ブロック：lessons配下は除外 -->
     <fieldset class="mode-block" id="block-single" data-mode="single">
       <legend>単語帳（単一ファイル）</legend>
       <div class="field">
         <label for="filename">ファイル</label>
         <select id="filename" name="filename" class="input">
           {% for f in files %}
-            <option value="{{ f }}" {% if request.form.get('filename') == f %}selected{% endif %}>{{ f }}</option>
+            {% if f not in ns.lesson_basenames %}
+              <option value="{{ f }}" {% if request.form.get('filename') == f %}selected{% endif %}>{{ f }}</option>
+            {% endif %}
           {% endfor %}
         </select>
         {% if not files %}
@@ -63,7 +72,7 @@
       <p class="label-desc">※この範囲内からランダム抽出されます。</p>
     </fieldset>
 
-    <!-- レッスン（複数ファイル）ブロック -->
+    <!-- レッスン（複数ファイル）ブロック（従来どおり） -->
     <fieldset class="mode-block" id="block-lessons" data-mode="lessons">
       <legend>レッスン（フォルダ内の複数ファイル）</legend>
 
@@ -82,7 +91,6 @@
       <div class="field">
         <label for="lesson_files">ファイル（複数選択可）</label>
         <select id="lesson_files" name="lesson_files" class="input" multiple size="8">
-          {# 初期表示：選択中フォルダのファイルだけを描画 #}
           {% set current_folder = request.form.get('lesson_folder','') %}
           {% for rel in lesson_tree.get(current_folder, []) %}
             <option value="{{ rel }}"
@@ -144,7 +152,7 @@
   .mode-block[hidden]{ display:none !important; }
 </style>
 
-{# ★ Jinja を JS から分離して JSON として埋め込む #}
+{# JSON埋め込み（既存のJS用）。ここは前回のまま #}
 <script type="application/json" id="lessonTreeData">
 {{ lesson_tree | tojson | safe }}
 </script>
@@ -157,16 +165,13 @@
   var folderSel = document.getElementById('lesson_folder');
   var filesSel  = document.getElementById('lesson_files');
 
-  // JSON を安全に読み込み
   var treeJsonEl = document.getElementById('lessonTreeData');
   var tree = {};
   try { tree = JSON.parse((treeJsonEl && treeJsonEl.textContent) || '{}'); } catch (e) { tree = {}; }
 
   function getCheckedValue(name){
     var nodes = form.querySelectorAll('input[name="'+name+'"]');
-    for (var i = 0; i < nodes.length; i++){
-      if (nodes[i].checked) return nodes[i].value;
-    }
+    for (var i = 0; i < nodes.length; i++){ if (nodes[i].checked) return nodes[i].value; }
     return null;
   }
 
@@ -194,7 +199,6 @@
     if (!folderSel || !filesSel) return;
     var folder  = folderSel.value || "";
     var options = tree[folder] || [];
-    // 既存の選択を保持
     var selected = {};
     for (var i = 0; i < filesSel.options.length; i++){
       var op = filesSel.options[i];
