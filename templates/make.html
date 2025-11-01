@@ -22,22 +22,22 @@
         <label>
           <input type="radio" name="select_mode" value="single"
                  {% if selected_mode == 'single' %}checked{% endif %}>
-          単語帳（単一ファイル）
+          単語帳から作成
         </label>
         <label style="margin-left:12px;">
           <input type="radio" name="select_mode" value="lessons"
                  {% if selected_mode == 'lessons' %}checked{% endif %}>
-          レッスン（フォルダ内の複数ファイル）
+          教科書準拠のテキストから作成
         </label>
       </div>
     </div>
 
     <!-- 単語帳（単一ファイル）ブロック -->
     <fieldset class="mode-block" id="block-single" data-mode="single">
-      <h3 class="section-title">単語帳から作成</h3>
+      <h3 class="section-title"></h3>
 
       <div class="field">
-        <label for="filename">ファイル</label>
+        <label for="filename">単語帳を選択</label>
         <select id="filename" name="filename" class="input">
           {% for f in files %}
             {% set f_norm = f|replace('\\','/') %}
@@ -77,10 +77,10 @@
 
     <!-- レッスン（複数ファイル）ブロック -->
     <fieldset class="mode-block" id="block-lessons" data-mode="lessons">
-      <h3 class="section-title">教科書準拠テキストから作成</h3>
+      <h3 class="section-title"></h3>
 
       <div class="field">
-        <label for="lesson_folder">フォルダ</label>
+        <label for="lesson_folder">テキストを選択</label>
         <select id="lesson_folder" name="lesson_folder" class="input">
           {% for folder, files_in in lesson_tree.items() %}
             <option value="{{ folder }}" {% if request.form.get('lesson_folder','') == folder %}selected{% endif %}>
@@ -92,7 +92,7 @@
       </div>
 
       <div class="field">
-        <label for="lesson_files">ファイル（複数選択可）</label>
+        <label for="lesson_files">セクションを選択（複数可）</label>
         <select id="lesson_files" name="lesson_files" class="input" multiple size="8">
           {% set current_folder = request.form.get('lesson_folder','') %}
           {% for rel in lesson_tree.get(current_folder, []) %}
