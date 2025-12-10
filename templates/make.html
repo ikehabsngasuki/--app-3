@@ -2,210 +2,171 @@
 {% block title %}問題作成 | 英単語テストPDF{% endblock %}
 {% block content %}
 
-<!-- DEBUG-MARKER: make.html v2: force visible titles -->
-<div class="card" style="display:grid; gap:16px;">
-  <h2>問題作成</h2>
+<!-- 説明カード -->
+<div class="card">
+  <h2>問題の作成</h2>
   <p class="label-desc">
-    出題元を選び、出題数などを指定してPDFを生成します。ヘッダーは
-    <strong>number / word / meaning</strong> が必要です（順不同でOK）。
+    アップロード済みの Excel から問題PDF／解答PDFを作成します。<br>
+    <code>word</code> / <code>meaning</code> 列が必須です。<br>
+    <code>section</code> 列があるファイルは、自動で「セクション選択モード」になり、<code>number</code> 列がある場合は番号範囲で出題できます。
   </p>
+</div>
 
-  {# 直近送信値（初期表示用） #}
-  {% set selected_mode = request.form.get('select_mode', 'single') %}
-  {% set selected_radio_mode = request.form.get('mode', 'en-ja') %}
+<!-- 単一ファイルから作成 -->
+<div class="card">
+  <h3>単一ファイルから作成</h3>
 
-  <form action="{{ url_for('make') }}" method="post" class="stack" id="makeForm">
-    <!-- 出題元の選択 -->
+  <form action="{{ url_for('make') }}" method="post" class="form-grid">
+    <input type="hidden" name="select_mode" value="single">
+
+    <!-- 対象ファイル選択（検索付き） -->
     <div class="field">
-      <label>出題元</label>
-      <div>
-        <label>
-          <input type="radio" name="select_mode" value="single"
-                 {% if selected_mode == 'single' %}checked{% endif %}>
-          単語帳から作成
-        </label>
-        <label style="margin-left:12px;">
-          <input type="radio" name="select_mode" value="lessons"
-                 {% if selected_mode == 'lessons' %}checked{% endif %}>
-          教科書準拠のテキストから作成
-        </label>
-      </div>
+      <label class="label" for="filename">対象ファイル</label>
+      <p class="label-desc">
+        ファイル名で絞り込みできます。キーワードを入力すると下のリストが絞り込まれます。<br>
+        表示名は <code>uploads/</code> の一つ奥の階層（実ファイル名）になります。
+      </p>
+
+      <!-- 🔍 検索ボックス -->
+      <input
+        id="fileSearch"
+        type="text"
+        class="input"
+        placeholder="ファイル名で検索（例：ターゲット1400）"
+        autocomplete="off"
+        style="margin-bottom:6px;"
+      />
+
+      <!-- 📂 ファイル選択セレクトボックス -->
+      <select id="filename" name="filename" class="input"
+              onchange="if(this.value){ location.href='{{ url_for('make') }}?file=' + encodeURIComponent(this.value); }">
+        <option value="">ファイルを選択してください</option>
+        {% for f in files %}
+          {# 表示用ラベルは uploads/ を取り除いたものにする #}
+          {% set label = f|replace('uploads/', '') %}
+          <option value="{{ f }}" {% if f == selected_file %}selected{% endif %}>
+            {{ label }}
+          </option>
+        {% endfor %}
+      </select>
     </div>
 
-    <!-- 単語帳（単一ファイル）ブロック -->
-    <fieldset class="mode-block" id="block-single" data-mode="single">
-      <h3 class="section-title"></h3>
-
-      <div class="field">
-        <label for="filename">単語帳を選択</label>
-        <select id="filename" name="filename" class="input">
-          {% for f in files %}
-            {% set f_norm = f|replace('\\','/') %}
-            {% if '/lessons/' not in f_norm %}
-              {% set label = f_norm %}
-              {% if label.startswith('uploads/') %}
-                {% set label = label[8:] %}
-              {% endif %}
-              {% set base = label.split('/')[-1] %}
-              <option value="{{ f }}" {% if request.form.get('filename') == f %}selected{% endif %}>
-                {{ base }}
-              </option>
-            {% endif %}
-          {% endfor %}
-        </select>
-        {% if not files %}
-          <p class="label-desc" style="margin-top:6px;">
-            ファイルがありません。先に <a href="{{ url_for('upload') }}">アップロード</a> してください。
+    {% if selected_file %}
+      {% if has_section %}
+        <!-- セクション選択モード -->
+        <div class="field">
+          <label class="label">セクション選択（section 列が検出されました）</label>
+          <p class="label-desc">
+            出題対象とするセクションを1つ以上選択してください。<br>
+            例：<code>Lesson1</code>, <code>Unit3</code> など。<br>
+            Windows は <code>Ctrl</code> キー、Mac は <code>⌘</code> キーを押しながらクリックすると複数選択できます。
           </p>
-        {% endif %}
-      </div>
-
-      <div class="twocol">
-        <div class="field">
-          <label for="start_num">開始番号</label>
-          <input id="start_num" class="input" type="number" name="start_num"
-                 min="1" placeholder="例: 1" value="{{ request.form.get('start_num','') }}">
+          {% if sections %}
+            <select
+              name="sections"
+              multiple
+              class="input"
+              size="{{ [sections|length, 8]|min }}"
+              style="height:auto;"
+            >
+              {% for s in sections %}
+                <option value="{{ s }}">{{ s }}</option>
+              {% endfor %}
+            </select>
+          {% else %}
+            <p class="label-desc">section 列はありますが、値が見つかりませんでした。</p>
+          {% endif %}
         </div>
+      {% else %}
+        <!-- 番号レンジモード -->
         <div class="field">
-          <label for="end_num">終了番号</label>
-          <input id="end_num" class="input" type="number" name="end_num"
-                 min="1" placeholder="例: 100" value="{{ request.form.get('end_num','') }}">
+          <label class="label">番号範囲（number 列）</label>
+          <p class="label-desc">
+            出題対象とする単語番号の範囲を指定します（<code>number</code> 列が必要です）。<br>
+            例：100〜200 の中からランダムに出題。
+          </p>
+          <div style="display:flex; gap:6px; align-items:center; flex-wrap:wrap;">
+            <input class="input" style="max-width:140px;" type="number" name="start_num" placeholder="開始番号">
+            <span>〜</span>
+            <input class="input" style="max-width:140px;" type="number" name="end_num" placeholder="終了番号">
+          </div>
         </div>
-      </div>
-      <p class="label-desc">※この範囲内からランダム抽出されます。</p>
-    </fieldset>
-
-    <!-- レッスン（複数ファイル）ブロック -->
-    <fieldset class="mode-block" id="block-lessons" data-mode="lessons">
-      <h3 class="section-title"></h3>
-
-      <div class="field">
-        <label for="lesson_folder">テキストを選択</label>
-        <select id="lesson_folder" name="lesson_folder" class="input">
-          {% for folder, files_in in lesson_tree.items() %}
-            <option value="{{ folder }}" {% if request.form.get('lesson_folder','') == folder %}selected{% endif %}>
-              {{ folder if folder else '（直下）' }}
-            </option>
-          {% endfor %}
-        </select>
-        <p class="label-desc" style="margin-top:6px;">フォルダを選ぶと、その中の .xlsx を下で選択できます。</p>
-      </div>
-
-      <div class="field">
-        <label for="lesson_files">セクションを選択（複数可）</label>
-        <select id="lesson_files" name="lesson_files" class="input" multiple size="8">
-          {% set current_folder = request.form.get('lesson_folder','') %}
-          {% for rel in lesson_tree.get(current_folder, []) %}
-            <option value="{{ rel }}"
-              {% if rel in request.form.getlist('lesson_files') %}selected{% endif %}>
-              {{ rel.split('/')[-1] }}
-            </option>
-          {% endfor %}
-        </select>
-        <p class="label-desc" style="margin-top:6px;">
-          レッスン複数選択モードでは番号範囲の指定は不要です。選択したファイル群の中から抽出します。
-        </p>
-      </div>
-    </fieldset>
-
-    <!-- 共通：出題モード / 出題数 -->
-    <div class="field">
-      <label>出題モード</label>
-      <div>
-        <label>
-          <input type="radio" name="mode" value="en-ja"
-                 {% if selected_radio_mode == 'en-ja' %}checked{% endif %}>
-          英 → 和（英和）
-        </label>
-        <label style="margin-left:12px;">
-          <input type="radio" name="mode" value="ja-en"
-                 {% if selected_radio_mode == 'ja-en' %}checked{% endif %}>
-          和 → 英（和英）
-        </label>
-      </div>
-      <p class="label-desc" style="margin-top:6px;">
-        英和：問題に <code>word</code>、解答に <code>meaning</code> を表示。<br>
-        和英：問題に <code>meaning</code>、解答に <code>word</code> を表示。
+      {% endif %}
+    {% else %}
+      <p class="label-desc">
+        ① 上でファイルを選ぶ → ② ここで「セクション」または「番号範囲」を指定 → ③ 下のボタンでPDF作成
       </p>
+    {% endif %}
+
+    <!-- 共通：出題数・モードなど -->
+    <div class="field">
+      <label class="label" for="num_questions">出題数</label>
+      <input id="num_questions" class="input" type="number" name="num_questions" value="20" min="1">
     </div>
 
     <div class="field">
-      <label for="num_questions">出題数</label>
-      <input id="num_questions" class="input" type="number" name="num_questions" min="1"
-             placeholder="例: 20" value="{{ request.form.get('num_questions','') }}" required>
-      <p class="label-desc" style="margin-top:6px;">
-        ・単語帳モード：指定した番号範囲から抽出します。<br>
-        ・レッスンモード：選択した複数ファイルを合算し、その中から抽出します。
-      </p>
+      <label class="label">出題モード</label>
+      <div style="display:flex; gap:12px; flex-wrap:wrap;">
+        <label><input type="radio" name="mode" value="en-ja" checked> 英→和</label>
+        <label><input type="radio" name="mode" value="ja-en"> 和→英</label>
+      </div>
     </div>
 
-    <div>
-      <button type="submit" class="btn btn-primary" {% if not files and not lesson_tree %}disabled{% endif %}>
-        PDFを作成
+    <div class="actions">
+      <button type="submit" class="btn btn-primary" {% if not selected_file %}disabled{% endif %}>
+        このファイルからPDFを作成
       </button>
-      <a class="btn btn-outline" href="{{ url_for('download') }}" style="margin-left:6px;">ダウンロードへ</a>
     </div>
   </form>
 </div>
 
-<style>
-  .twocol{ display:grid; grid-template-columns: 1fr 1fr; gap:12px; }
-  @media (max-width:640px){ .twocol{ grid-template-columns: 1fr; } }
-  .mode-block{ border:1px solid var(--line); border-radius:10px; padding:12px; }
-  .mode-block[hidden]{ display:none !important; }
-  .section-title{
-    font-weight:700;
-    font-size:14px;
-    margin:0 0 8px 2px;
-    color:#0f172a;
-  }
-</style>
-
+<!-- ファイル検索用スクリプト -->
 <script>
 (function(){
-  const form = document.getElementById('makeForm');
-  const blocks = Array.from(document.querySelectorAll('.mode-block'));
-  const radioMode = form.querySelectorAll('input[name="select_mode"]');
-  const folderSel = document.getElementById('lesson_folder');
-  const filesSel  = document.getElementById('lesson_files');
+  const searchInput = document.getElementById('fileSearch');
+  const select = document.getElementById('filename');
+  if (!searchInput || !select) return;
 
-  const tree = {{ lesson_tree | tojson | safe }};
+  const allOptions = Array.from(select.options);
+  const placeholderOption = allOptions[0];       // 先頭: 「ファイルを選択してください」
+  const realOptions = allOptions.slice(1);       // 実ファイルの option
 
-  function rebuildFiles(){
-    if (!folderSel || !filesSel) return;
-    const folder  = folderSel.value || "";
-    const options = tree[folder] || [];
-    filesSel.innerHTML = "";
-    options.forEach(rel => {
-      const opt = document.createElement('option');
-      opt.value = rel;
-      opt.textContent = rel.split('/').pop();
-      filesSel.appendChild(opt);
+  function filterOptions(query) {
+    const q = query.trim().toLowerCase();
+
+    // 現在の選択値を保持
+    const currentValue = select.value;
+
+    // 一旦クリア
+    select.innerHTML = "";
+    select.appendChild(placeholderOption);
+
+    let hasCurrent = false;
+
+    realOptions.forEach(opt => {
+      const text = opt.text.toLowerCase();
+      if (!q || text.includes(q)) {
+        select.appendChild(opt);
+        if (opt.value === currentValue) {
+          hasCurrent = true;
+        }
+      }
     });
-    if (filesSel.options.length){
-      filesSel.options[0].selected = true;
+
+    // フィルタ後も選択状態をできるだけ維持
+    if (hasCurrent) {
+      select.value = currentValue;
+    } else {
+      select.value = "";
     }
   }
 
-  function toggleBlocks(){
-    const mode = (form.querySelector('input[name="select_mode"]:checked') || {}).value || 'single';
-    blocks.forEach(b => {
-      const show = b.dataset.mode === mode;
-      b.hidden = !show;
-      b.querySelectorAll('input, select, textarea').forEach(el => {
-        el.disabled = !show;
-      });
-    });
-    if (mode === 'lessons') rebuildFiles();
-  }
+  searchInput.addEventListener('input', function(){
+    filterOptions(this.value);
+  });
 
-  toggleBlocks();
-  if ((form.querySelector('input[name="select_mode"]:checked') || {}).value === 'lessons') {
-    rebuildFiles();
-  }
-
-  radioMode.forEach(r => r.addEventListener('change', toggleBlocks));
-  if (folderSel) folderSel.addEventListener('change', rebuildFiles);
+  // ページロード時に一度反映
+  filterOptions(searchInput.value || "");
 })();
 </script>
 

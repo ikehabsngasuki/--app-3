@@ -2,9 +2,13 @@
 {% block title %}アップロード | 英単語テストPDF{% endblock %}
 {% block content %}
 
-<!-- 単一ファイルのアップロードフォーム（従来） -->
+<!-- 単一ファイルのアップロードフォーム -->
 <div class="card">
   <h2>Excel（.xlsx）で作成した単語リストをアップロード</h2>
+  <p class="label-desc">
+    <code>word</code> / <code>meaning</code> 列が必須です。<br>
+    <code>section</code> 列があるとセクションごと、<code>number</code> 列があると番号範囲で出題できます。
+  </p>
   <form action="{{ url_for('upload') }}" method="post" enctype="multipart/form-data" class="form-grid">
     <div class="field">
       <label class="label" for="fileInput">ファイルを選択</label>
@@ -17,38 +21,7 @@
   </form>
 </div>
 
-<!-- 追加: レッスンフォルダをZIPで一括アップロード -->
-<div class="card">
-  <h2>レッスンフォルダをZIPで一括アップロード</h2>
-  <p class="label-desc">
-    フォルダをZIPにしてアップロードすると、中の <code>.xlsx</code> を <code>uploads/lessons/</code> に展開します。<br>
-    ファイル名に含まれる数字が「レッスン番号」として扱われます（例：<code>lesson2.xlsx</code> → 2）。
-  </p>
-  <form action="{{ url_for('upload') }}" method="post" enctype="multipart/form-data" class="form-grid">
-    <div class="field">
-      <label class="label" for="lessonZip">ZIPを選択</label>
-      <input id="lessonZip" class="input" type="file" name="lesson_zip" accept=".zip" />
-    </div>
-    <div class="actions">
-      <button type="submit" class="btn">アップロード</button>
-    </div>
-  </form>
-
-  <div class="field" style="margin-top:12px;">
-    <label class="label">アップロード済みレッスン</label>
-    {% if lessons %}
-      <ul style="margin:.5rem 0 0 1rem; display:grid; gap:.25rem;">
-        {% for l in lessons %}
-          <li style="white-space:normal; word-break:break-word; overflow-wrap:anywhere;">{{ l }}</li>
-        {% endfor %}
-      </ul>
-    {% else %}
-      <p class="label-desc">まだレッスンファイルがありません。</p>
-    {% endif %}
-  </div>
-</div>
-
-<!-- アップロード手順スライドショー（あなたの既存UIを維持） -->
+<!-- アップロード手順スライドショー -->
 <div class="card">
   <h2>アップロードの手順</h2>
 
@@ -101,7 +74,7 @@
   </noscript>
 </div>
 
-<!-- 一覧（従来の単一アップロード一覧） -->
+<!-- 一覧（アップロード済みファイル） -->
 <div class="card">
   <h3>アップロード済みファイル</h3>
   {% if files %}

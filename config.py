@@ -28,6 +28,9 @@ class Config:
     S3_ACCESS_KEY_ID = os.environ.get("S3_ACCESS_KEY_ID")
     S3_SECRET_ACCESS_KEY = os.environ.get("S3_SECRET_ACCESS_KEY")
     S3_BUCKET = os.environ.get("S3_BUCKET")
+    
+    # 生成されたpdfの保管場所　ローカル
+    PDF_FOLDER = os.path.join(BASE_DIR, "generated_pdfs")
 
     # デバッグログ（任意）
     @staticmethod

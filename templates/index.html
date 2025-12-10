@@ -7,11 +7,11 @@
   <h1 style="margin:0;">英単語テストPDFジェネレーター</h1>
   <p class="label-desc" style="margin:0;">
     単語リスト（Excel）から <strong>問題PDF</strong> と <strong>解答PDF</strong> をワンクリックで作成します。  
-    クラウド（R2）またはローカルに保存され、ダウンロードリンクを発行します。
+    ファイルはサーバー上に保存され、あとからダウンロードもできます。
   </p>
   <div style="display:flex; gap:10px; flex-wrap:wrap; margin-top:6px;">
     <a class="btn btn-primary" href="{{ url_for('upload') }}">まずは Excel をアップロード</a>
-    <a class="btn btn-outline" href="{{ url_for('make') }}">範囲を選んで問題を作成</a>
+    <a class="btn btn-outline" href="{{ url_for('make') }}">セクションまたは番号範囲から作成</a>
     <a class="btn btn-outline" href="{{ url_for('download') }}">作成済みPDFをダウンロード</a>
   </div>
 </section>
@@ -29,14 +29,16 @@
     </div>
     <div class="card" style="border:1px dashed var(--line); box-shadow:none;">
       <div class="label" style="display:inline-flex; align-items:center; gap:6px;">
-        <span style="font-weight:700; color:var(--brand);">② 問題を作成</span>
+        <span style="font-weight:700; color:var(--brand);">② 条件を指定</span>
       </div>
-      <p class="label-desc">開始/終了番号と出題数を入力して PDF を作成します。</p>
-      <a class="btn btn-outline" href="{{ url_for('make') }}">範囲を指定する</a>
+      <p class="label-desc">
+        ファイルを選択すると、<strong>section（セクション）</strong> または <strong>number（番号範囲）</strong> を指定できます。
+      </p>
+      <a class="btn btn-outline" href="{{ url_for('make') }}">出題条件を指定する</a>
     </div>
     <div class="card" style="border:1px dashed var(--line); box-shadow:none;">
       <div class="label" style="display:inline-flex; align-items:center; gap:6px;">
-        <span style="font-weight:700; color:var(--brand);">③ ダウンロード</span>
+        <span style="font-weight:700; color:var(--brand);">③ PDFをダウンロード</span>
       </div>
       <p class="label-desc">問題PDF／解答PDFのリンクから保存します。</p>
       <a class="btn btn-outline" href="{{ url_for('download') }}">PDF を受け取る</a>
@@ -48,30 +50,58 @@
 <section class="card" style="display:grid; gap:12px;">
   <h3 style="margin:0;">Excel の書式</h3>
   <p class="label-desc" style="margin:0;">
-    見出し行の <strong>列名を必ず</strong> 下記の通りにしてください。
+    見出し行の <strong>列名を必ず</strong> 下記の通りにしてください。<br>
+    最低限 <code>word</code> と <code>meaning</code> があれば動作します。
   </p>
   <table class="table" style="margin-top:6px;">
     <thead>
       <tr>
-        <th>number（連番・整数）</th>
-        <th>word（出題語）</th>
-        <th>meaning（意味）</th>
+        <th>book（任意）</th>
+        <th>section（任意）</th>
+        <th>number（任意）</th>
+        <th>word（必須）</th>
+        <th>meaning（必須）</th>
       </tr>
     </thead>
     <tbody>
-      <tr><td>1</td><td>apple</td><td>りんご</td></tr>
-      <tr><td>2</td><td>book</td><td>本</td></tr>
-      <tr><td>3</td><td>carry</td><td>運ぶ</td></tr>
+      <tr>
+        <td>ターゲット1900</td>
+        <td></td>
+        <td>1</td>
+        <td>apple</td>
+        <td>りんご</td>
+      </tr>
+      <tr>
+        <td>ターゲット1900</td>
+        <td></td>
+        <td>2</td>
+        <td>book</td>
+        <td>本</td>
+      </tr>
+      <tr>
+        <td>CROWN1</td>
+        <td>Lesson1</td>
+        <td>1</td>
+        <td>look up</td>
+        <td>調べる</td>
+      </tr>
+      <tr>
+        <td>CROWN1</td>
+        <td>Lesson1</td>
+        <td>2</td>
+        <td>take part in</td>
+        <td>～に参加する</td>
+      </tr>
     </tbody>
   </table>
   <ul class="label-desc" style="margin:0; padding-left:1.1rem;">
-    <li>先頭行はヘッダーとして <code>number</code> / <code>word</code> / <code>meaning</code>。大小文字は区別されます。</li>
-    <li><code>number</code> は整数のみ（空欄や文字列は自動で除外されます）。</li>
-    <li>アップロード後、<em>問題作成</em>で「開始番号〜終了番号」「出題数」を指定できます。</li>
+    <li><code>word</code>（出題語）と <code>meaning</code>（意味）が必須です。</li>
+    <li><code>section</code> 列がある場合は、自動的に「セクション選択モード」になり、選んだセクションからランダム出題されます。</li>
+    <li><code>number</code> 列がある場合は、「開始番号〜終了番号」を指定して、その範囲からランダム出題できます。</li>
+    <li><code>book</code> は教材名などを入れる任意の列です（ターゲット1900 / 教科書名など）。現状の出題には必須ではありません。</li>
+    <li>列名（ヘッダー）は <code>book</code> / <code>section</code> / <code>number</code> / <code>word</code> / <code>meaning</code> のように <strong>半角英字で正確に</strong> 記載してください。</li>
   </ul>
 </section>
-
-
 
 <!-- 最近アップロード -->
 <section class="card" style="display:grid; gap:12px;">
@@ -82,7 +112,9 @@
       <tbody>
         {% for f in files %}
           <tr>
-            <td style="white-space:normal; word-break:break-word; overflow-wrap:anywhere;">{{ f }}</td>
+            <td style="white-space:normal; word-break:break-word; overflow-wrap:anywhere;">
+              {{ f }}
+            </td>
           </tr>
         {% endfor %}
       </tbody>

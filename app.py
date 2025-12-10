@@ -1,13 +1,19 @@
 # app.py
 import io
 import os
-import re
 import uuid
-import zipfile
-import unicodedata
 import datetime as dt
 import pandas as pd
-from flask import Flask, render_template, request, redirect, url_for, flash, abort, send_file
+from flask import (
+    Flask,
+    render_template,
+    request,
+    redirect,
+    url_for,
+    flash,
+    abort,
+    send_file,
+)
 
 from config import Config
 from services.storage import get_storage
@@ -21,6 +27,11 @@ cfg.log_env()
 os.makedirs(cfg.UPLOAD_FOLDER, exist_ok=True)
 os.makedirs(cfg.FONTS_DIR, exist_ok=True)
 
+# ローカル開発時に生成された PDF をまとめて置いておくディレクトリ
+# 実体は: <BASE_DIR>/uploads/pdfs/
+PDF_LOCAL_DIR = os.path.join(cfg.UPLOAD_FOLDER, "pdfs")
+os.makedirs(PDF_LOCAL_DIR, exist_ok=True)
+
 app = Flask(__name__, template_folder=cfg.TEMPLATE_DIR, static_folder="static")
 app.secret_key = cfg.SECRET_KEY
 app.config["UPLOAD_FOLDER"] = cfg.UPLOAD_FOLDER
@@ -33,106 +44,24 @@ storage = get_storage(cfg)
 FONT_NAME = register_fonts(cfg.FONTS_DIR)
 styles = build_styles(FONT_NAME)
 
-# ========= 定数 / ユーティリティ =========
-LESSON_DIR = "uploads/lessons"  # ストレージ上の論理ルート
-LOCAL_LESSON_ROOT = os.path.join(cfg.UPLOAD_FOLDER, "lessons")  # ローカル実体
 
-def allowed_download(name: str) -> bool:
-    _, ext = os.path.splitext(name)
-    return ext.lower() in cfg.ALLOWED_DOWNLOAD_EXTENSIONS
-
+# ========= ユーティリティ =========
 def list_xlsx() -> list[str]:
     """
-    単一ファイルモード用。storage.list_xlsx(prefix="uploads/") は
-    “uploads/.../*.xlsx” の **フルキー** を返す前提。
+    アップロード済み .xlsx を “uploads/.../*.xlsx” のフルキーで返す。
     """
     keys = storage.list_xlsx(prefix="uploads/") or []
-    # 念のためxlsxだけに
     keys = [k for k in keys if k.lower().endswith(".xlsx")]
     print(f"[FILES] count={len(keys)} sample={keys[:5]}", flush=True)
     return keys
 
-def norm_sep(path: str) -> str:
-    return path.replace("\\", "/")
-
-def sanitize_path_component(name: str) -> str:
-    name = name.replace("\x00", "")
-    name = name.strip().strip("/").strip("\\")
-    name = unicodedata.normalize("NFKC", name)
-    if name in (".", ".."):
-        name = "_"
-    name = name.replace("/", "_").replace("\\", "_")
-    name = re.sub(r"[\u0000-\u001F\u007F]", "", name)
-    return name or "_"
-
-def decode_zip_member_name(info: zipfile.ZipInfo) -> str:
-    # UTF-8 フラグが無ければ cp437→cp932 再解釈
-    name = info.filename
-    if (info.flag_bits & 0x800) != 0:
-        return name
-    try:
-        raw = name.encode("cp437", errors="strict")
-        return raw.decode("cp932", errors="strict")
-    except Exception:
-        return name
-
-# --- レッスン配下の .xlsx を相対パスで列挙 ---
-def list_lessons_all() -> list[str]:
-    """
-    返り値は **LESSON_DIR からの相対パス**（例: '中1/Excelデータ/lesson1.xlsx'）。
-    R2: storage.list_xlsx は 'uploads/lessons/...' のフルキー → LESSON_DIR を剥がす。
-    Local: uploads/lessons の物理ディレクトリから再帰列挙。
-    """
-    if cfg.USE_R2:
-        full_keys = storage.list_xlsx(prefix=f"{LESSON_DIR}/") or []
-        rels: list[str] = []
-        prefix = f"{LESSON_DIR}/"
-        for k in full_keys:
-            if not k.lower().endswith(".xlsx"):
-                continue
-            if k.startswith(prefix):
-                rels.append(k[len(prefix):])
-            else:
-                # 念のため防御（想定外キー）
-                rels.append(k)
-        rels.sort(key=str.lower)
-        print(f"[LESSONS:R2] rels count={len(rels)} sample={rels[:5]}", flush=True)
-        return rels
-    else:
-        items: list[str] = []
-        if os.path.isdir(LOCAL_LESSON_ROOT):
-            for base, _, files in os.walk(LOCAL_LESSON_ROOT):
-                for fn in files:
-                    if not fn.lower().endswith(".xlsx"):
-                        continue
-                    full = os.path.join(base, fn)
-                    rel = os.path.relpath(full, LOCAL_LESSON_ROOT)
-                    items.append(norm_sep(rel))
-        items.sort(key=str.lower)
-        print(f"[LESSONS:LOCAL] rels count={len(items)} sample={items[:5]}", flush=True)
-        return items
-
-def build_lesson_tree() -> dict[str, list[str]]:
-    """
-    { フォルダ相対パス("")含む : [ 相対パス(ファイル) ... ] }
-    """
-    items = list_lessons_all()
-    tree: dict[str, list[str]] = {}
-    for rel in items:
-        parts = rel.split("/")
-        folder = "" if len(parts) == 1 else "/".join(parts[:-1])
-        tree.setdefault(folder, []).append(rel)
-    for k in tree:
-        tree[k].sort(key=str.lower)
-    print(f"[LESSON-TREE] folders={len(tree)} keys={list(tree.keys())[:6]}", flush=True)
-    return dict(sorted(tree.items(), key=lambda kv: kv[0].lower()))
 
 # ========= ルーティング =========
 @app.route("/")
 def index():
     files = list_xlsx()
-    lesson_tree = build_lesson_tree()
-    return render_template("index.html", files=files, lesson_tree=lesson_tree)
+    return render_template("index.html", files=files)
+
 
 @app.route("/upload", methods=["GET", "POST"])
 def upload():
@@ -146,184 +75,142 @@ def upload():
                 flash(".xlsx のみアップロード可です。")
                 return redirect(url_for("upload"))
             try:
-                # 既存どおり uploads/ 直下（フォルダを増やしたい場合はここで調整）
                 key = f"uploads/{filename}"
-                storage.upload(file, key, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+                storage.upload(
+                    file,
+                    key,
+                    "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                )
                 flash(f"アップロードが完了しました: {filename}")
             except Exception as e:
                 flash(f"アップロードに失敗しました: {e}")
-            return redirect(url_for("upload"))
-
-        # --- レッスン ZIP 一括 ---
-        if "lesson_zip" in request.files and request.files["lesson_zip"] and request.files["lesson_zip"].filename:
-            zf = request.files["lesson_zip"]
-            if not zf.filename.lower().endswith(".zip"):
-                flash("ZIPファイルを選択してください。")
-                return redirect(url_for("upload"))
-            try:
-                data = zf.read()
-                saved_keys = []
-                with zipfile.ZipFile(io.BytesIO(data)) as z:
-                    for info in z.infolist():
-                        if info.is_dir():
-                            continue
-                        inner = norm_sep(decode_zip_member_name(info))
-                        raw_parts = [seg for seg in inner.split("/") if seg and seg not in (".", "..")]
-                        if not raw_parts:
-                            continue
-                        safe_parts = [sanitize_path_component(seg) for seg in raw_parts]
-                        rel_path = "/".join(safe_parts)
-                        if not rel_path.lower().endswith(".xlsx"):
-                            continue
-
-                        file_bytes = z.read(info)
-
-                        if cfg.USE_R2:
-                            key = f"{LESSON_DIR}/{rel_path}"
-                            storage.upload(file_bytes, key, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
-                            saved_keys.append(key)
-                        else:
-                            dst = os.path.join(LOCAL_LESSON_ROOT, *rel_path.split("/"))
-                            os.makedirs(os.path.dirname(dst), exist_ok=True)
-                            with open(dst, "wb") as f:
-                                f.write(file_bytes)
-                            saved_keys.append(dst)
-
-                print("[ZIP] saved (first 8):", *saved_keys[:8], sep="\n  ")
-                flash(f"レッスンZIPを展開しました（{len(saved_keys)} 件の .xlsx）" if saved_keys else "ZIP内に .xlsx が見つかりませんでした。")
-            except Exception as e:
-                flash(f"ZIPの展開に失敗しました: {e}")
             return redirect(url_for("upload"))
 
         flash("ファイルが選択されていません。")
         return redirect(url_for("upload"))
 
     files = list_xlsx()
-    lesson_tree = build_lesson_tree()
-    return render_template("upload.html", files=files, lesson_tree=lesson_tree)
+    return render_template("upload.html", files=files)
+
 
 @app.route("/make", methods=["GET", "POST"])
 def make():
-    files = list_xlsx()                  # ここは **フルキー**（uploads/...）
-    lesson_tree = build_lesson_tree()    # ここは **相対パス**（LESSON_DIR から）
+    # ここは **フルキー**（uploads/...）
+    files = list_xlsx()
 
     if request.method == "POST":
-        select_mode   = request.form.get("select_mode", "single")
-        filename      = request.form.get("filename", "")           # ← 単一モード: フルキー
-        lesson_folder = request.form.get("lesson_folder", "")      # ← 相対フォルダ
-        lesson_files  = request.form.getlist("lesson_files")       # ← 相対ファイル群
+        filename = request.form.get("filename", "")
         num_questions = request.form.get("num_questions", "")
-        mode          = request.form.get("mode", "en-ja")
+        mode = request.form.get("mode", "en-ja")
 
+        # 出題数
         try:
             num_questions = int(num_questions)
         except ValueError:
             flash("出題数は整数で指定してください。")
-            return redirect(url_for("make"))
+            return redirect(url_for("make", file=filename))
         if num_questions <= 0:
             flash("出題数は1以上にしてください。")
+            return redirect(url_for("make", file=filename))
+
+        # ファイルチェック
+        if not filename or filename not in files:
+            flash("不正なファイル名です。")
             return redirect(url_for("make"))
 
         try:
-            if select_mode == "lessons":
-                # 相対ファイルの正当性チェック
-                valid_relpaths = set(lesson_tree.get(lesson_folder, []))
-                picked = [p for p in lesson_files if p in valid_relpaths]
-                if not picked:
-                    flash("選択されたファイルがありません（フォルダとファイルを選んでください）。")
-                    return redirect(url_for("make"))
+            # Excel 読み込み
+            data = storage.open_xlsx_as_bytes(filename)
+            df = pd.read_excel(io.BytesIO(data), engine="openpyxl")
 
-                frames = []
-                for rel in picked:
-                    if cfg.USE_R2:
-                        key = f"{LESSON_DIR}/{rel}"       # R2: フルキー化
-                        data = storage.open_xlsx_as_bytes(key)
-                    else:
-                        path = os.path.join(LOCAL_LESSON_ROOT, *rel.split("/"))
-                        with open(path, "rb") as f:
-                            data = f.read()
+            # word / meaning 必須
+            required = {"word", "meaning"}
+            missing = required - set(df.columns)
+            if missing:
+                flash(f"必要な列がありません: {', '.join(sorted(missing))}")
+                return redirect(url_for("make", file=filename))
 
-                    dfi = pd.read_excel(io.BytesIO(data), engine="openpyxl")
-                    required = {"number", "word", "meaning"}
-                    missing = required - set(dfi.columns)
-                    if missing:
-                        flash(f"{rel} に必要な列がありません: {', '.join(sorted(missing))}")
-                        return redirect(url_for("make"))
+            base_name_for_title = os.path.splitext(os.path.basename(filename))[0]
 
-                    num_series_i = pd.to_numeric(dfi["number"], errors="coerce")
-                    dfi = dfi.loc[num_series_i.notna()].copy()
-                    if dfi.empty:
-                        continue
-                    dfi["number"] = num_series_i.loc[dfi.index].astype(int)
-                    dfi["__source__"] = rel
-                    frames.append(dfi)
+            has_section_col = "section" in df.columns
+            has_number_col = "number" in df.columns
 
-                if not frames:
-                    flash("選択したレッスンに問題データが見つかりませんでした。")
-                    return redirect(url_for("make"))
+            # タイトルの範囲部分用
+            title_range_part = ""
 
-                df = pd.concat(frames, axis=0, ignore_index=True)
-                # 複数レッスンは番号レンジ表記なし
-                base_name_for_title = f"{lesson_folder or '（直下）'}: " + ", ".join(os.path.basename(p) for p in picked)
-                title_range_part = None
+            # ===== セクションモード =====
+            if has_section_col:
+                sections_selected = request.form.getlist("sections")
+                if not sections_selected:
+                    flash("セクションを1つ以上選択してください。")
+                    return redirect(url_for("make", file=filename))
 
+                df["__section_str__"] = df["section"].astype(str)
+                df = df[df["__section_str__"].isin(sections_selected)]
+                if df.empty:
+                    flash("選択したセクションに該当する問題がありません。")
+                    return redirect(url_for("make", file=filename))
+
+                # number 列があれば、表示用に整数へ（必須ではない）
+                if has_number_col:
+                    num_series = pd.to_numeric(df["number"], errors="coerce")
+                    # 数値として解釈できた行のみ整数化（NaNの行はそのまま）
+                    df.loc[num_series.notna(), "number"] = (
+                        num_series.loc[num_series.notna()].astype(int)
+                    )
+
+                title_range_part = "sections: " + ", ".join(sections_selected)
+
+            # ===== 番号レンジモード =====
             else:
-                # 単一ファイル（番号範囲あり）
-                start_num = request.form.get("start_num", "")
-                end_num   = request.form.get("end_num", "")
-                try:
-                    start_num = int(start_num); end_num = int(end_num)
-                except ValueError:
-                    flash("開始番号・終了番号は整数で指定してください。")
-                    return redirect(url_for("make"))
-                if start_num > end_num:
-                    flash("開始番号は終了番号以下にしてください。"); return redirect(url_for("make"))
-
-                if filename not in files:
-                    flash("不正なファイル名です。")
-                    return redirect(url_for("make"))
-
-                # filename は **フルキー**（uploads/...）
-                data = storage.open_xlsx_as_bytes(filename)
-                df = pd.read_excel(io.BytesIO(data), engine="openpyxl")
-
-                required = {"number", "word", "meaning"}
-                missing = required - set(df.columns)
-                if missing:
-                    flash(f"必要な列がありません: {', '.join(sorted(missing))}")
-                    return redirect(url_for("make"))
+                if not has_number_col:
+                    flash("番号範囲で出題するには number 列が必要です。")
+                    return redirect(url_for("make", file=filename))
 
                 num_series = pd.to_numeric(df["number"], errors="coerce")
                 df = df.loc[num_series.notna()].copy()
                 if df.empty:
                     flash("number 列に有効な数値がありません。")
-                    return redirect(url_for("make"))
+                    return redirect(url_for("make", file=filename))
                 df["number"] = num_series.loc[df.index].astype(int)
+
+                start_num = request.form.get("start_num", "")
+                end_num = request.form.get("end_num", "")
+                try:
+                    start_num = int(start_num)
+                    end_num = int(end_num)
+                except ValueError:
+                    flash("開始番号・終了番号は整数で指定してください。")
+                    return redirect(url_for("make", file=filename))
+                if start_num > end_num:
+                    flash("開始番号は終了番号以下にしてください。")
+                    return redirect(url_for("make", file=filename))
 
                 df = df[(df["number"] >= start_num) & (df["number"] <= end_num)]
                 if df.empty:
                     flash("指定範囲に該当する問題がありません。")
-                    return redirect(url_for("make"))
+                    return redirect(url_for("make", file=filename))
 
-                # タイトルはベース名のみ
-                base_name_for_title = os.path.splitext(os.path.basename(filename))[0]
                 title_range_part = f"No.{start_num}–{end_num}"
 
         except Exception as e:
             flash(f"Excelの読み込みに失敗しました: {e}")
             return redirect(url_for("make"))
 
-        # ランダム抽出
+        # ===== ランダム抽出 =====
         n = min(num_questions, len(df))
         sample = df.sample(n=n).reset_index(drop=True)
 
         # 出題モード
         if mode == "en-ja":
-            question_col, answer_col = "word", "meaning"; title_base = "英和"
+            question_col, answer_col = "word", "meaning"
+            title_base = "英和"
         elif mode == "ja-en":
-            question_col, answer_col = "meaning", "word"; title_base = "和英"
+            question_col, answer_col = "meaning", "word"
+            title_base = "和英"
         else:
-            flash("不正な出題モードです。"); return redirect(url_for("make"))
+            flash("不正な出題モードです。")
+            return redirect(url_for("make", file=filename))
 
         # タイトル
         if title_range_part:
@@ -333,37 +220,81 @@ def make():
         title_q = f"{title_base}：問題（{title_common}）"
         title_a = f"{title_base}：解答（{title_common}）"
 
-        # 出力
+        # ===== PDF 出力 =====
         stamp = dt.datetime.now().strftime("%Y%m%d-%H%M%S")
         uid = uuid.uuid4().hex[:8]
         q_name = f"questions_{title_base}_{stamp}_{uid}.pdf"
         a_name = f"answers_{title_base}_{stamp}_{uid}.pdf"
 
         try:
-            q_pdf = build_pdf(sample, styles, with_answers=False,
-                              question_col=question_col, answer_col=answer_col, title=title_q).read()
-            a_pdf = build_pdf(sample, styles, with_answers=True,
-                              question_col=question_col, answer_col=answer_col, title=title_a).read()
+            q_pdf = build_pdf(
+                sample,
+                styles,
+                with_answers=False,
+                question_col=question_col,
+                answer_col=answer_col,
+                title=title_q,
+            ).read()
+            a_pdf = build_pdf(
+                sample,
+                styles,
+                with_answers=True,
+                question_col=question_col,
+                answer_col=answer_col,
+                title=title_a,
+            ).read()
 
             if cfg.USE_R2:
-                q_key = f"generated/{q_name}"; a_key = f"generated/{a_name}"
+                # 本番（R2）はこれまで通り S3/R2 に保存
+                q_key = f"generated/{q_name}"
+                a_key = f"generated/{a_name}"
                 storage.upload(q_pdf, q_key, "application/pdf")
                 storage.upload(a_pdf, a_key, "application/pdf")
                 return redirect(url_for("download", q=q_key, a=a_key))
             else:
-                with open(os.path.join(cfg.UPLOAD_FOLDER, q_name), "wb") as f: f.write(q_pdf)
-                with open(os.path.join(cfg.UPLOAD_FOLDER, a_name), "wb") as f: f.write(a_pdf)
+                # ローカルは uploads/pdfs/ 以下にまとめて保存
+                q_path = os.path.join(PDF_LOCAL_DIR, q_name)
+                a_path = os.path.join(PDF_LOCAL_DIR, a_name)
+                with open(q_path, "wb") as f:
+                    f.write(q_pdf)
+                with open(a_path, "wb") as f:
+                    f.write(a_pdf)
+
                 flash("問題と解答PDFを作成しました！")
+                # download.html にはファイル名だけ渡しておけばOK
                 return redirect(url_for("download", q=q_name, a=a_name))
         except Exception as e:
             flash(f"PDFの作成に失敗しました: {e}")
             return redirect(url_for("make"))
 
-    return render_template("make.html", files=files, lesson_tree=lesson_tree)
+    # ===== GET: ファイルの section 有無だけ判定してテンプレに渡す =====
+    selected_file = request.args.get("file", "")
+    has_section = False
+    sections: list[str] = []
+
+    if selected_file in files:
+        try:
+            data = storage.open_xlsx_as_bytes(selected_file)
+            df_preview = pd.read_excel(io.BytesIO(data), engine="openpyxl")
+            if "section" in df_preview.columns:
+                has_section = True
+                sections = sorted({str(s) for s in df_preview["section"].dropna().unique()})
+        except Exception as e:
+            flash(f"Excelの読み込みに失敗しました: {e}")
+
+    return render_template(
+        "make.html",
+        files=files,
+        selected_file=selected_file,
+        has_section=has_section,
+        sections=sections,
+    )
+
 
 @app.route("/download")
 def download():
-    q = request.args.get("q"); a = request.args.get("a")
+    q = request.args.get("q")
+    a = request.args.get("a")
     print("[/download] query:", q, a, "USE_R2:", cfg.USE_R2, flush=True)
     if cfg.USE_R2:
         q_url = a_url = None
@@ -373,9 +304,15 @@ def download():
             if a and (a.startswith("generated/") or a.startswith("uploads/")):
                 a_url = storage.presign_get(a, cfg.PRESIGN_EXPIRES)
             return render_template("download.html", q_url=q_url, a_url=a_url)
-        except Exception:
-            return render_template("download.html", q=q, a=a)
+        except Exception as e:
+            # R2で署名付きURL生成に失敗した場合はローカル用リンクは出さない
+            app.logger.exception(f"presign_get failed: {e}")
+            flash("ダウンロード用URLの生成に失敗しました。時間をおいて再試行してください。")
+            return render_template("download.html")
+
+    # ローカル運用時はファイル名を渡して /download_file 側で実ファイルを返す
     return render_template("download.html", q=q, a=a)
+
 
 @app.route("/download_file/<filename>")
 def download_file(filename):
@@ -384,15 +321,29 @@ def download_file(filename):
     if ext.lower() not in cfg.ALLOWED_DOWNLOAD_EXTENSIONS:
         flash("許可されていないファイル形式です。")
         return redirect(url_for("download"))
-    full_path = os.path.join(cfg.UPLOAD_FOLDER, filename)
+
+    # 拡張子ごとに探すディレクトリを分ける
+    if ext.lower() == ".pdf":
+        base_dir = PDF_LOCAL_DIR
+    else:
+        base_dir = cfg.UPLOAD_FOLDER
+
+    full_path = os.path.join(base_dir, filename)
     if not os.path.isfile(full_path):
         flash("指定されたファイルが存在しません。")
         return redirect(url_for("download"))
     try:
-        return send_file(full_path, as_attachment=True, download_name=filename, conditional=True, max_age=0)
+        return send_file(
+            full_path,
+            as_attachment=True,
+            download_name=filename,
+            conditional=True,
+            max_age=0,
+        )
     except Exception as e:
         app.logger.exception(f"send_file failed for {filename}: {e}")
         abort(500)
+
 
 if __name__ == "__main__":
     app.run(
