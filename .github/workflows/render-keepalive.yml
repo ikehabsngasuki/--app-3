@@ -1,0 +1,18 @@
+name: render-keepalive
+
+on:
+  schedule:
+    # JST 14:00-21:59 = UTC 05:00-12:59（月〜土）を10分おき
+    - cron: "*/10 5-12 * * 1-6"
+    # JST 22:00ちょうど = UTC 13:00（月〜土）を1回
+    - cron: "0 13 * * 1-6"
+  workflow_dispatch:
+
+jobs:
+  ping:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Ping Render health endpoint
+        run: |
+          set -e
+          curl -fsS --max-time 20 "https://app-3-p9vd.onrender.com/healthz" > /dev/null
