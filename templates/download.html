@@ -5,39 +5,41 @@
 <div class="card" style="display:grid; gap:16px;">
   <h2>ダウンロード</h2>
 
-  {% if q_url or a_url or q or a %}
+  {% if items and items|length > 0 %}
 
-    <p class="label-desc">生成されたPDFを以下から取得できます。署名URLは一定時間で失効します。</p>
-
-    <div class="stack" style="gap:10px;">
-      {% if q_url %}
-        <div>
-          <div class="label-desc" style="margin-bottom:6px;">問題PDF（署名URL）</div>
-          <a class="btn btn-primary" href="{{ q_url }}">問題PDFをダウンロード</a>
-        </div>
+    <p class="label-desc">
+      生成されたPDFを以下から取得できます。
+      {% if use_r2 %}
+        署名URLは一定時間で失効します。
       {% endif %}
+    </p>
 
-      {% if a_url %}
-        <div>
-          <div class="label-desc" style="margin-bottom:6px;">解答PDF（署名URL）</div>
-          <a class="btn btn-primary" href="{{ a_url }}">解答PDFをダウンロード</a>
-        </div>
-      {% endif %}
+    <div class="stack" style="gap:14px;">
+      {% for it in items %}
+        <div class="card" style="box-shadow:none; border:1px dashed var(--line); padding:14px;">
+          <div style="font-weight:700; margin-bottom:8px;">第{{ it.idx }}部</div>
 
-      {# ローカル運用時（R2未使用時のフォールバック） #}
-      {% if q and not q_url %}
-        <div>
-          <div class="label-desc" style="margin-bottom:6px;">問題PDF（ローカル）</div>
-          <a class="btn btn-outline" href="{{ url_for('download_file', filename=q) }}">問題PDFをダウンロード</a>
+          {% if use_r2 %}
+            <div style="display:flex; gap:10px; flex-wrap:wrap;">
+              {% if it.q_url %}
+                <a class="btn btn-primary" href="{{ it.q_url }}">問題PDFをダウンロード</a>
+              {% endif %}
+              {% if it.a_url %}
+                <a class="btn btn-primary" href="{{ it.a_url }}">解答PDFをダウンロード</a>
+              {% endif %}
+            </div>
+          {% else %}
+            <div style="display:flex; gap:10px; flex-wrap:wrap;">
+              {% if it.q %}
+                <a class="btn btn-outline" href="{{ url_for('download_file', filename=it.q) }}">問題PDFをダウンロード</a>
+              {% endif %}
+              {% if it.a %}
+                <a class="btn btn-outline" href="{{ url_for('download_file', filename=it.a) }}">解答PDFをダウンロード</a>
+              {% endif %}
+            </div>
+          {% endif %}
         </div>
-      {% endif %}
-
-      {% if a and not a_url %}
-        <div>
-          <div class="label-desc" style="margin-bottom:6px;">解答PDF（ローカル）</div>
-          <a class="btn btn-outline" href="{{ url_for('download_file', filename=a) }}">解答PDFをダウンロード</a>
-        </div>
-      {% endif %}
+      {% endfor %}
     </div>
 
     <div>

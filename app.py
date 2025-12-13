@@ -3,6 +3,8 @@ import io
 import os
 import uuid
 import datetime as dt
+from urllib.parse import urlencode
+
 import pandas as pd
 from flask import (
     Flask,
@@ -56,6 +58,28 @@ def list_xlsx() -> list[str]:
     return keys
 
 
+def parse_optional_positive_int(
+    raw: str | None, *, default: int, min_v: int, max_v: int, label: str
+) -> int:
+    """
+    空欄OKの数値入力をパースする。
+    - None/空文字/空白のみ → default
+    - 数字 → min_v..max_v の範囲チェック
+    """
+    s = (raw or "").strip()
+    if s == "":
+        return default
+    try:
+        v = int(s)
+    except ValueError:
+        raise ValueError(f"{label}は整数で指定してください。")
+    if v < min_v:
+        raise ValueError(f"{label}は{min_v}以上にしてください。")
+    if v > max_v:
+        raise ValueError(f"{label}が大きすぎます（最大{max_v}まで）。")
+    return v
+
+
 # ========= ルーティング =========
 @app.route("/")
 def index():
@@ -95,17 +119,15 @@ def upload():
 
 @app.route("/make", methods=["GET", "POST"])
 def make():
-    # ここは **フルキー**（uploads/...）
     files = list_xlsx()
 
     if request.method == "POST":
         filename = request.form.get("filename", "")
-        num_questions = request.form.get("num_questions", "")
         mode = request.form.get("mode", "en-ja")
 
-        # 出題数
+        # 出題数（必須）
         try:
-            num_questions = int(num_questions)
+            num_questions = int(request.form.get("num_questions", ""))
         except ValueError:
             flash("出題数は整数で指定してください。")
             return redirect(url_for("make", file=filename))
@@ -113,17 +135,29 @@ def make():
             flash("出題数は1以上にしてください。")
             return redirect(url_for("make", file=filename))
 
+        # 作成部数（任意：空欄OK → 1）
+        try:
+            num_sets = parse_optional_positive_int(
+                request.form.get("num_sets"),
+                default=1,
+                min_v=1,
+                max_v=20,
+                label="作成部数",
+            )
+        except ValueError as e:
+            flash(str(e))
+            return redirect(url_for("make", file=filename))
+
         # ファイルチェック
         if not filename or filename not in files:
             flash("不正なファイル名です。")
             return redirect(url_for("make"))
 
+        # Excel 読み込み
         try:
-            # Excel 読み込み
             data = storage.open_xlsx_as_bytes(filename)
             df = pd.read_excel(io.BytesIO(data), engine="openpyxl")
 
-            # word / meaning 必須
             required = {"word", "meaning"}
             missing = required - set(df.columns)
             if missing:
@@ -135,7 +169,6 @@ def make():
             has_section_col = "section" in df.columns
             has_number_col = "number" in df.columns
 
-            # タイトルの範囲部分用
             title_range_part = ""
 
             # ===== セクションモード =====
@@ -154,7 +187,6 @@ def make():
                 # number 列があれば、表示用に整数へ（必須ではない）
                 if has_number_col:
                     num_series = pd.to_numeric(df["number"], errors="coerce")
-                    # 数値として解釈できた行のみ整数化（NaNの行はそのまま）
                     df.loc[num_series.notna(), "number"] = (
                         num_series.loc[num_series.notna()].astype(int)
                     )
@@ -197,11 +229,9 @@ def make():
             flash(f"Excelの読み込みに失敗しました: {e}")
             return redirect(url_for("make"))
 
-        # ===== ランダム抽出 =====
+        # ===== 共通部分 =====
         n = min(num_questions, len(df))
-        sample = df.sample(n=n).reset_index(drop=True)
 
-        # 出題モード
         if mode == "en-ja":
             question_col, answer_col = "word", "meaning"
             title_base = "英和"
@@ -212,62 +242,83 @@ def make():
             flash("不正な出題モードです。")
             return redirect(url_for("make", file=filename))
 
-        # タイトル
         if title_range_part:
             title_common = f"{base_name_for_title} / {title_range_part} / {n}問"
         else:
             title_common = f"{base_name_for_title} / {n}問"
-        title_q = f"{title_base}：問題（{title_common}）"
-        title_a = f"{title_base}：解答（{title_common}）"
 
-        # ===== PDF 出力 =====
+        title_q_base = f"{title_base}：問題（{title_common}）"
+        title_a_base = f"{title_base}：解答（{title_common}）"
+
         stamp = dt.datetime.now().strftime("%Y%m%d-%H%M%S")
-        uid = uuid.uuid4().hex[:8]
-        q_name = f"questions_{title_base}_{stamp}_{uid}.pdf"
-        a_name = f"answers_{title_base}_{stamp}_{uid}.pdf"
+
+        # ✅ download へ q/a を複数渡す（順番は q,a,q,a,...）
+        download_args: list[tuple[str, str]] = []
 
         try:
-            q_pdf = build_pdf(
-                sample,
-                styles,
-                with_answers=False,
-                question_col=question_col,
-                answer_col=answer_col,
-                title=title_q,
-            ).read()
-            a_pdf = build_pdf(
-                sample,
-                styles,
-                with_answers=True,
-                question_col=question_col,
-                answer_col=answer_col,
-                title=title_a,
-            ).read()
+            for set_idx in range(1, num_sets + 1):
+                sample = df.sample(n=n).reset_index(drop=True)
 
-            if cfg.USE_R2:
-                # 本番（R2）はこれまで通り S3/R2 に保存
-                q_key = f"generated/{q_name}"
-                a_key = f"generated/{a_name}"
-                storage.upload(q_pdf, q_key, "application/pdf")
-                storage.upload(a_pdf, a_key, "application/pdf")
-                return redirect(url_for("download", q=q_key, a=a_key))
-            else:
-                # ローカルは uploads/pdfs/ 以下にまとめて保存
-                q_path = os.path.join(PDF_LOCAL_DIR, q_name)
-                a_path = os.path.join(PDF_LOCAL_DIR, a_name)
-                with open(q_path, "wb") as f:
-                    f.write(q_pdf)
-                with open(a_path, "wb") as f:
-                    f.write(a_pdf)
+                uid = uuid.uuid4().hex[:8]
+                suffix = f"_v{set_idx}" if num_sets > 1 else ""
+                q_name = f"questions_{title_base}_{stamp}{suffix}_{uid}.pdf"
+                a_name = f"answers_{title_base}_{stamp}{suffix}_{uid}.pdf"
 
+                if num_sets > 1:
+                    title_q = f"{title_q_base} / 第{set_idx}部"
+                    title_a = f"{title_a_base} / 第{set_idx}部"
+                else:
+                    title_q = title_q_base
+                    title_a = title_a_base
+
+                q_pdf = build_pdf(
+                    sample,
+                    styles,
+                    with_answers=False,
+                    question_col=question_col,
+                    answer_col=answer_col,
+                    title=title_q,
+                ).read()
+
+                a_pdf = build_pdf(
+                    sample,
+                    styles,
+                    with_answers=True,
+                    question_col=question_col,
+                    answer_col=answer_col,
+                    title=title_a,
+                ).read()
+
+                if cfg.USE_R2:
+                    q_key = f"generated/{q_name}"
+                    a_key = f"generated/{a_name}"
+                    storage.upload(q_pdf, q_key, "application/pdf")
+                    storage.upload(a_pdf, a_key, "application/pdf")
+                    download_args.append(("q", q_key))
+                    download_args.append(("a", a_key))
+                else:
+                    q_path = os.path.join(PDF_LOCAL_DIR, q_name)
+                    a_path = os.path.join(PDF_LOCAL_DIR, a_name)
+                    with open(q_path, "wb") as f:
+                        f.write(q_pdf)
+                    with open(a_path, "wb") as f:
+                        f.write(a_pdf)
+                    download_args.append(("q", q_name))
+                    download_args.append(("a", a_name))
+
+            if num_sets == 1:
                 flash("問題と解答PDFを作成しました！")
-                # download.html にはファイル名だけ渡しておけばOK
-                return redirect(url_for("download", q=q_name, a=a_name))
+            else:
+                flash(f"問題と解答PDFを {num_sets} 部作成しました！")
+
+            # ✅ ここが重要：同名キーを潰さず、複数 q/a をクエリに積む
+            return redirect(url_for("download") + "?" + urlencode(download_args, doseq=True))
+
         except Exception as e:
             flash(f"PDFの作成に失敗しました: {e}")
             return redirect(url_for("make"))
 
-    # ===== GET: ファイルの section 有無だけ判定してテンプレに渡す =====
+    # ===== GET: section 有無だけ判定してテンプレに渡す =====
     selected_file = request.args.get("file", "")
     has_section = False
     sections: list[str] = []
@@ -293,25 +344,31 @@ def make():
 
 @app.route("/download")
 def download():
-    q = request.args.get("q")
-    a = request.args.get("a")
-    print("[/download] query:", q, a, "USE_R2:", cfg.USE_R2, flush=True)
+    qs = request.args.getlist("q")
+    ans = request.args.getlist("a")
+    print("[/download] qs:", qs, "as:", ans, "USE_R2:", cfg.USE_R2, flush=True)
+
     if cfg.USE_R2:
-        q_url = a_url = None
+        items = []
         try:
-            if q and (q.startswith("generated/") or q.startswith("uploads/")):
-                q_url = storage.presign_get(q, cfg.PRESIGN_EXPIRES)
-            if a and (a.startswith("generated/") or a.startswith("uploads/")):
-                a_url = storage.presign_get(a, cfg.PRESIGN_EXPIRES)
-            return render_template("download.html", q_url=q_url, a_url=a_url)
+            for i, (q, a) in enumerate(zip(qs, ans), start=1):
+                q_url = a_url = None
+                if q and (q.startswith("generated/") or q.startswith("uploads/")):
+                    q_url = storage.presign_get(q, cfg.PRESIGN_EXPIRES)
+                if a and (a.startswith("generated/") or a.startswith("uploads/")):
+                    a_url = storage.presign_get(a, cfg.PRESIGN_EXPIRES)
+                items.append({"idx": i, "q_url": q_url, "a_url": a_url, "q": q, "a": a})
+            return render_template("download.html", items=items, use_r2=True)
         except Exception as e:
-            # R2で署名付きURL生成に失敗した場合はローカル用リンクは出さない
             app.logger.exception(f"presign_get failed: {e}")
             flash("ダウンロード用URLの生成に失敗しました。時間をおいて再試行してください。")
-            return render_template("download.html")
+            return render_template("download.html", items=[], use_r2=True)
 
-    # ローカル運用時はファイル名を渡して /download_file 側で実ファイルを返す
-    return render_template("download.html", q=q, a=a)
+    # ローカル運用
+    items = []
+    for i, (q, a) in enumerate(zip(qs, ans), start=1):
+        items.append({"idx": i, "q": q, "a": a})
+    return render_template("download.html", items=items, use_r2=False)
 
 
 @app.route("/download_file/<filename>")
@@ -332,6 +389,7 @@ def download_file(filename):
     if not os.path.isfile(full_path):
         flash("指定されたファイルが存在しません。")
         return redirect(url_for("download"))
+
     try:
         return send_file(
             full_path,

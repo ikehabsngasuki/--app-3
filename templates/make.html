@@ -28,80 +28,77 @@
       </p>
 
       <!-- 🔍 検索ボックス -->
-      <input
-        id="fileSearch"
-        type="text"
-        class="input"
-        placeholder="ファイル名で検索（例：ターゲット1400）"
-        autocomplete="off"
-        style="margin-bottom:6px;"
-      />
+      <input id="fileSearch" type="text" class="input" placeholder="ファイル名で検索（例：ターゲット1400）" autocomplete="off"
+        style="margin-bottom:6px;" />
 
       <!-- 📂 ファイル選択セレクトボックス -->
       <select id="filename" name="filename" class="input"
-              onchange="if(this.value){ location.href='{{ url_for('make') }}?file=' + encodeURIComponent(this.value); }">
+        onchange="if(this.value){ location.href='{{ url_for('make') }}?file=' + encodeURIComponent(this.value); }">
         <option value="">ファイルを選択してください</option>
         {% for f in files %}
-          {# 表示用ラベルは uploads/ を取り除いたものにする #}
-          {% set label = f|replace('uploads/', '') %}
-          <option value="{{ f }}" {% if f == selected_file %}selected{% endif %}>
-            {{ label }}
-          </option>
+        {# 表示用ラベルは uploads/ を取り除いたものにする #}
+        {% set label = f|replace('uploads/', '') %}
+        <option value="{{ f }}" {% if f==selected_file %}selected{% endif %}>
+          {{ label }}
+        </option>
         {% endfor %}
       </select>
     </div>
 
     {% if selected_file %}
-      {% if has_section %}
-        <!-- セクション選択モード -->
-        <div class="field">
-          <label class="label">セクション選択（section 列が検出されました）</label>
-          <p class="label-desc">
-            出題対象とするセクションを1つ以上選択してください。<br>
-            例：<code>Lesson1</code>, <code>Unit3</code> など。<br>
-            Windows は <code>Ctrl</code> キー、Mac は <code>⌘</code> キーを押しながらクリックすると複数選択できます。
-          </p>
-          {% if sections %}
-            <select
-              name="sections"
-              multiple
-              class="input"
-              size="{{ [sections|length, 8]|min }}"
-              style="height:auto;"
-            >
-              {% for s in sections %}
-                <option value="{{ s }}">{{ s }}</option>
-              {% endfor %}
-            </select>
-          {% else %}
-            <p class="label-desc">section 列はありますが、値が見つかりませんでした。</p>
-          {% endif %}
-        </div>
-      {% else %}
-        <!-- 番号レンジモード -->
-        <div class="field">
-          <label class="label">番号範囲（number 列）</label>
-          <p class="label-desc">
-            出題対象とする単語番号の範囲を指定します（<code>number</code> 列が必要です）。<br>
-            例：100〜200 の中からランダムに出題。
-          </p>
-          <div style="display:flex; gap:6px; align-items:center; flex-wrap:wrap;">
-            <input class="input" style="max-width:140px;" type="number" name="start_num" placeholder="開始番号">
-            <span>〜</span>
-            <input class="input" style="max-width:140px;" type="number" name="end_num" placeholder="終了番号">
-          </div>
-        </div>
-      {% endif %}
-    {% else %}
+    {% if has_section %}
+    <!-- セクション選択モード -->
+    <div class="field">
+      <label class="label">セクション選択（section 列が検出されました）</label>
       <p class="label-desc">
-        ① 上でファイルを選ぶ → ② ここで「セクション」または「番号範囲」を指定 → ③ 下のボタンでPDF作成
+        出題対象とするセクションを1つ以上選択してください。<br>
+        例：<code>Lesson1</code>, <code>Unit3</code> など。<br>
+        Windows は <code>Ctrl</code> キー、Mac は <code>⌘</code> キーを押しながらクリックすると複数選択できます。
       </p>
+      {% if sections %}
+      <select name="sections" multiple class="input" size="{{ [sections|length, 8]|min }}" style="height:auto;">
+        {% for s in sections %}
+        <option value="{{ s }}">{{ s }}</option>
+        {% endfor %}
+      </select>
+      {% else %}
+      <p class="label-desc">section 列はありますが、値が見つかりませんでした。</p>
+      {% endif %}
+    </div>
+    {% else %}
+    <!-- 番号レンジモード -->
+    <div class="field">
+      <label class="label">番号範囲（number 列）</label>
+      <p class="label-desc">
+        出題対象とする単語番号の範囲を指定します（<code>number</code> 列が必要です）。<br>
+        例：100〜200 の中からランダムに出題。
+      </p>
+      <div style="display:flex; gap:6px; align-items:center; flex-wrap:wrap;">
+        <input class="input" style="max-width:140px;" type="number" name="start_num" placeholder="開始番号">
+        <span>〜</span>
+        <input class="input" style="max-width:140px;" type="number" name="end_num" placeholder="終了番号">
+      </div>
+    </div>
+    {% endif %}
+    {% else %}
+    <p class="label-desc">
+      ① 上でファイルを選ぶ → ② ここで「セクション」または「番号範囲」を指定 → ③ 下のボタンでPDF作成
+    </p>
     {% endif %}
 
     <!-- 共通：出題数・モードなど -->
     <div class="field">
       <label class="label" for="num_questions">出題数</label>
       <input id="num_questions" class="input" type="number" name="num_questions" value="20" min="1">
+    </div>
+
+    <div class="field">
+      <label class="label" for="num_sets">作成部数（任意）</label>
+      <p class="label-desc">
+        空欄なら通常通り1部だけ作成します。<br>
+        数字を入れると、その部数だけ問題PDF／解答PDFを作成します（例：3）。
+      </p>
+      <input id="num_sets" class="input" type="number" name="num_sets" min="1" max="20" placeholder="（空欄OK）">
     </div>
 
     <div class="field">
@@ -122,52 +119,52 @@
 
 <!-- ファイル検索用スクリプト -->
 <script>
-(function(){
-  const searchInput = document.getElementById('fileSearch');
-  const select = document.getElementById('filename');
-  if (!searchInput || !select) return;
+  (function () {
+    const searchInput = document.getElementById('fileSearch');
+    const select = document.getElementById('filename');
+    if (!searchInput || !select) return;
 
-  const allOptions = Array.from(select.options);
-  const placeholderOption = allOptions[0];       // 先頭: 「ファイルを選択してください」
-  const realOptions = allOptions.slice(1);       // 実ファイルの option
+    const allOptions = Array.from(select.options);
+    const placeholderOption = allOptions[0];       // 先頭: 「ファイルを選択してください」
+    const realOptions = allOptions.slice(1);       // 実ファイルの option
 
-  function filterOptions(query) {
-    const q = query.trim().toLowerCase();
+    function filterOptions(query) {
+      const q = query.trim().toLowerCase();
 
-    // 現在の選択値を保持
-    const currentValue = select.value;
+      // 現在の選択値を保持
+      const currentValue = select.value;
 
-    // 一旦クリア
-    select.innerHTML = "";
-    select.appendChild(placeholderOption);
+      // 一旦クリア
+      select.innerHTML = "";
+      select.appendChild(placeholderOption);
 
-    let hasCurrent = false;
+      let hasCurrent = false;
 
-    realOptions.forEach(opt => {
-      const text = opt.text.toLowerCase();
-      if (!q || text.includes(q)) {
-        select.appendChild(opt);
-        if (opt.value === currentValue) {
-          hasCurrent = true;
+      realOptions.forEach(opt => {
+        const text = opt.text.toLowerCase();
+        if (!q || text.includes(q)) {
+          select.appendChild(opt);
+          if (opt.value === currentValue) {
+            hasCurrent = true;
+          }
         }
+      });
+
+      // フィルタ後も選択状態をできるだけ維持
+      if (hasCurrent) {
+        select.value = currentValue;
+      } else {
+        select.value = "";
       }
+    }
+
+    searchInput.addEventListener('input', function () {
+      filterOptions(this.value);
     });
 
-    // フィルタ後も選択状態をできるだけ維持
-    if (hasCurrent) {
-      select.value = currentValue;
-    } else {
-      select.value = "";
-    }
-  }
-
-  searchInput.addEventListener('input', function(){
-    filterOptions(this.value);
-  });
-
-  // ページロード時に一度反映
-  filterOptions(searchInput.value || "");
-})();
+    // ページロード時に一度反映
+    filterOptions(searchInput.value || "");
+  })();
 </script>
 
 {% endblock %}
