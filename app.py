@@ -35,6 +35,10 @@ PDF_LOCAL_DIR = os.path.join(cfg.UPLOAD_FOLDER, "pdfs")
 os.makedirs(PDF_LOCAL_DIR, exist_ok=True)
 
 app = Flask(__name__, template_folder=cfg.TEMPLATE_DIR, static_folder="static")
+@app.route("/healthz", methods=["GET", "HEAD"])
+def healthz():
+    return "ok", 200
+
 app.secret_key = cfg.SECRET_KEY
 app.config["UPLOAD_FOLDER"] = cfg.UPLOAD_FOLDER
 app.config["MAX_CONTENT_LENGTH"] = cfg.MAX_CONTENT_LENGTH
