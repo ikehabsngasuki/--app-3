@@ -14,6 +14,50 @@
       {% endif %}
     </p>
 
+    {# ===== 一括（印刷向け：結合PDF） ===== #}
+    {% if items|length >= 2 %}
+      <div class="card" style="box-shadow:none; border:1px solid var(--line); padding:14px;">
+        <div style="font-weight:700; margin-bottom:10px;">印刷向け（一括：結合PDF）</div>
+
+        <div style="display:flex; gap:10px; flex-wrap:wrap; align-items:center;">
+          <form method="GET" action="{{ url_for('download_merge_questions') }}" style="display:inline;">
+            {% for it in items %}
+              {% if it.q %}<input type="hidden" name="q" value="{{ it.q }}">{% endif %}
+            {% endfor %}
+            <button type="submit" class="btn btn-primary">問題を結合PDFで一括ダウンロード</button>
+          </form>
+
+          <form method="GET" action="{{ url_for('download_merge_answers') }}" style="display:inline;">
+            {% for it in items %}
+              {% if it.a %}<input type="hidden" name="a" value="{{ it.a }}">{% endif %}
+            {% endfor %}
+            <button type="submit" class="btn btn-primary">解答を結合PDFで一括ダウンロード</button>
+          </form>
+
+          <span class="label-desc" style="margin:0;">
+            第1部〜第{{ items|length }}部を順番に結合します（印刷がラク）。
+          </span>
+        </div>
+      </div>
+
+      <div class="card" style="box-shadow:none; border:1px solid var(--line); padding:14px;">
+        <div style="font-weight:700; margin-bottom:10px;">保存・共有向け（一括：ZIP）</div>
+
+        <form method="GET" action="{{ url_for('download_zip') }}" style="display:flex; gap:10px; flex-wrap:wrap; align-items:center;">
+          {% for it in items %}
+            {% if it.q %}<input type="hidden" name="q" value="{{ it.q }}">{% endif %}
+            {% if it.a %}<input type="hidden" name="a" value="{{ it.a }}">{% endif %}
+          {% endfor %}
+
+          <button type="submit" class="btn btn-outline">問題＋解答をZIPで一括ダウンロード</button>
+
+          <span class="label-desc" style="margin:0;">
+            フォルダ分けでまとめて取得できます。
+          </span>
+        </form>
+      </div>
+    {% endif %}
+
     <div class="stack" style="gap:14px;">
       {% for it in items %}
         <div class="card" style="box-shadow:none; border:1px dashed var(--line); padding:14px;">
