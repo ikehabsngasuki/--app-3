@@ -4,6 +4,8 @@ import os
 import uuid
 import datetime as dt
 from urllib.parse import urlencode
+import urllib.request
+import zipfile
 
 import pandas as pd
 from flask import (
@@ -22,6 +24,13 @@ from services.storage import get_storage
 from services.pdf_service import register_fonts, build_styles, build_pdf
 from utils.files import safe_filename
 
+# ===== PDF結合用（pypdf 推奨、なければ PyPDF2）=====
+try:
+    from pypdf import PdfReader, PdfWriter
+except ImportError:
+    from PyPDF2 import PdfReader, PdfWriter  # type: ignore
+
+
 cfg = Config()
 cfg.log_env()
 
@@ -35,9 +44,12 @@ PDF_LOCAL_DIR = os.path.join(cfg.UPLOAD_FOLDER, "pdfs")
 os.makedirs(PDF_LOCAL_DIR, exist_ok=True)
 
 app = Flask(__name__, template_folder=cfg.TEMPLATE_DIR, static_folder="static")
+
+
 @app.route("/healthz", methods=["GET", "HEAD"])
 def healthz():
     return "ok", 200
+
 
 app.secret_key = cfg.SECRET_KEY
 app.config["UPLOAD_FOLDER"] = cfg.UPLOAD_FOLDER
@@ -82,6 +94,48 @@ def parse_optional_positive_int(
     if v > max_v:
         raise ValueError(f"{label}が大きすぎます（最大{max_v}まで）。")
     return v
+
+
+def _read_pdf_bytes_from_identifier(identifier: str) -> bytes:
+    """
+    /download で items に入れている q/a の値を元に PDF bytes を取得する。
+    - USE_R2=True : identifier は "generated/..." などのキー → presign_get → URL から取得
+    - USE_R2=False: identifier は ローカルPDFファイル名 → PDF_LOCAL_DIR から読み込み
+    """
+    if cfg.USE_R2:
+        key = identifier
+        if not key or not (key.startswith("generated/") or key.startswith("uploads/")):
+            raise ValueError("不正なファイルキーです。")
+
+        url = storage.presign_get(key, cfg.PRESIGN_EXPIRES)
+        if not url:
+            raise ValueError("ダウンロードURLの生成に失敗しました。")
+
+        with urllib.request.urlopen(url) as resp:
+            return resp.read()
+
+    filename = safe_filename(identifier)
+    full_path = os.path.join(PDF_LOCAL_DIR, filename)
+    if not os.path.isfile(full_path):
+        raise FileNotFoundError(f"ファイルが存在しません: {filename}")
+    with open(full_path, "rb") as f:
+        return f.read()
+
+
+def _merge_pdf_bytes_in_order(pdf_bytes_list: list[bytes]) -> bytes:
+    """
+    複数PDF(bytes)を順番通りに結合して、結合PDF(bytes)を返す。
+    """
+    writer = PdfWriter()
+    for b in pdf_bytes_list:
+        reader = PdfReader(io.BytesIO(b))
+        for page in reader.pages:
+            writer.add_page(page)
+
+    out = io.BytesIO()
+    writer.write(out)
+    out.seek(0)
+    return out.read()
 
 
 # ========= ルーティング =========
@@ -315,7 +369,6 @@ def make():
             else:
                 flash(f"問題と解答PDFを {num_sets} 部作成しました！")
 
-            # ✅ ここが重要：同名キーを潰さず、複数 q/a をクエリに積む
             return redirect(url_for("download") + "?" + urlencode(download_args, doseq=True))
 
         except Exception as e:
@@ -368,11 +421,116 @@ def download():
             flash("ダウンロード用URLの生成に失敗しました。時間をおいて再試行してください。")
             return render_template("download.html", items=[], use_r2=True)
 
-    # ローカル運用
     items = []
     for i, (q, a) in enumerate(zip(qs, ans), start=1):
         items.append({"idx": i, "q": q, "a": a})
     return render_template("download.html", items=items, use_r2=False)
+
+
+# ===== 保存・共有向け：ZIP一括 =====
+@app.route("/download_zip")
+def download_zip():
+    qs = request.args.getlist("q")
+    ans = request.args.getlist("a")
+    print("[/download_zip] qs:", qs, "as:", ans, "USE_R2:", cfg.USE_R2, flush=True)
+
+    if not qs or not ans:
+        flash("ZIPにまとめるファイルが指定されていません。")
+        return redirect(url_for("download"))
+
+    pair_count = min(len(qs), len(ans))
+    if pair_count <= 0:
+        flash("ZIPにまとめるファイルが不足しています。")
+        return redirect(url_for("download"))
+
+    zip_buf = io.BytesIO()
+    stamp = dt.datetime.now().strftime("%Y%m%d-%H%M%S")
+
+    try:
+        with zipfile.ZipFile(zip_buf, "w", compression=zipfile.ZIP_DEFLATED) as zf:
+            for i in range(pair_count):
+                q_id = qs[i]
+                a_id = ans[i]
+
+                q_bytes = _read_pdf_bytes_from_identifier(q_id)
+                a_bytes = _read_pdf_bytes_from_identifier(a_id)
+
+                folder = f"copy_{i+1:02d}"
+                zf.writestr(f"{folder}/questions.pdf", q_bytes)
+                zf.writestr(f"{folder}/answers.pdf", a_bytes)
+
+        zip_buf.seek(0)
+        zip_name = f"tests_bundle_{stamp}_{pair_count}sets.zip"
+        return send_file(
+            zip_buf,
+            mimetype="application/zip",
+            as_attachment=True,
+            download_name=zip_name,
+            max_age=0,
+        )
+
+    except Exception as e:
+        app.logger.exception(f"download_zip failed: {e}")
+        flash(f"ZIPの作成に失敗しました: {e}")
+        args = [("q", x) for x in qs] + [("a", x) for x in ans]
+        return redirect(url_for("download") + "?" + urlencode(args, doseq=True))
+
+
+# ===== 印刷向け：結合PDF =====
+@app.route("/download_merge_questions")
+def download_merge_questions():
+    qs = request.args.getlist("q")
+    print("[/download_merge_questions] qs:", qs, "USE_R2:", cfg.USE_R2, flush=True)
+
+    if not qs:
+        flash("結合する問題PDFが指定されていません。")
+        return redirect(url_for("download"))
+
+    try:
+        pdfs = [_read_pdf_bytes_from_identifier(q) for q in qs]
+        merged = _merge_pdf_bytes_in_order(pdfs)
+
+        stamp = dt.datetime.now().strftime("%Y%m%d-%H%M%S")
+        filename = f"questions_merged_{stamp}_{len(qs)}sets.pdf"
+        return send_file(
+            io.BytesIO(merged),
+            mimetype="application/pdf",
+            as_attachment=True,
+            download_name=filename,
+            max_age=0,
+        )
+    except Exception as e:
+        app.logger.exception(f"download_merge_questions failed: {e}")
+        flash(f"問題PDFの結合に失敗しました: {e}")
+        return redirect(url_for("download") + "?" + urlencode([("q", x) for x in qs], doseq=True))
+
+
+@app.route("/download_merge_answers")
+def download_merge_answers():
+    ans = request.args.getlist("a")
+    print("[/download_merge_answers] as:", ans, "USE_R2:", cfg.USE_R2, flush=True)
+
+    if not ans:
+        flash("結合する解答PDFが指定されていません。")
+        return redirect(url_for("download"))
+
+    try:
+        pdfs = [_read_pdf_bytes_from_identifier(a) for a in ans]
+        merged = _merge_pdf_bytes_in_order(pdfs)
+
+        stamp = dt.datetime.now().strftime("%Y%m%d-%H%M%S")
+        filename = f"answers_merged_{stamp}_{len(ans)}sets.pdf"
+        return send_file(
+            io.BytesIO(merged),
+            mimetype="application/pdf",
+            as_attachment=True,
+            download_name=filename,
+            max_age=0,
+        )
+    except Exception as e:
+        app.logger.exception(f"download_merge_answers failed: {e}")
+        flash(f"解答PDFの結合に失敗しました: {e}")
+        return redirect(url_for("download") + "?" + urlencode([("a", x) for x in ans], doseq=True))
 
 
 @app.route("/download_file/<filename>")
@@ -383,7 +541,6 @@ def download_file(filename):
         flash("許可されていないファイル形式です。")
         return redirect(url_for("download"))
 
-    # 拡張子ごとに探すディレクトリを分ける
     if ext.lower() == ".pdf":
         base_dir = PDF_LOCAL_DIR
     else:
