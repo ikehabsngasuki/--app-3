@@ -3,6 +3,7 @@ import io
 import os
 import uuid
 import datetime as dt
+import hmac
 from urllib.parse import urlencode
 import urllib.request
 import zipfile
@@ -17,6 +18,8 @@ from flask import (
     flash,
     abort,
     send_file,
+    Response,
+    g,
 )
 
 from config import Config
@@ -54,6 +57,121 @@ def healthz():
 app.secret_key = cfg.SECRET_KEY
 app.config["UPLOAD_FOLDER"] = cfg.UPLOAD_FOLDER
 app.config["MAX_CONTENT_LENGTH"] = cfg.MAX_CONTENT_LENGTH
+
+# ===== Optional Basic認証（Public/認証ありの段階運用） =====
+# 認証を『強制』はしない。Authorization ヘッダーが付いている場合のみ認証済み扱いにする。
+# 認証ダイアログを出したい場合は /login を開く。
+
+def _basic_auth_enabled() -> bool:
+    return bool(cfg.BASIC_AUTH_USER and cfg.BASIC_AUTH_PASS)
+
+def _basic_auth_ok() -> bool:
+    auth = request.authorization
+    if not auth:
+        return False
+    return hmac.compare_digest(auth.username or "", cfg.BASIC_AUTH_USER) and hmac.compare_digest(
+        auth.password or "", cfg.BASIC_AUTH_PASS
+    )
+
+@app.before_request
+def _set_auth_flag():
+    # 認証情報が未設定なら常に Public 扱い
+    if not _basic_auth_enabled():
+        g.is_auth = False
+        return None
+    # Authorization が付いていれば判定（付いていなければ Public）
+    g.is_auth = bool(_basic_auth_ok())
+    return None
+
+@app.route("/login")
+def login():
+    """Basic認証の入力ダイアログを出すための入口。
+
+    - USER/PASS が設定されていない場合は Public のまま
+    - すでに認証済みならトップへ
+    """
+    if not _basic_auth_enabled():
+        flash("認証（BASIC_AUTH_USER/PASS）が未設定のため、Public モードで動作しています。")
+        return redirect(url_for("index"))
+
+    if getattr(g, "is_auth", False):
+        flash("認証済みです。")
+        return redirect(url_for("index"))
+
+    return Response(
+        "Authentication required",
+        401,
+        {"WWW-Authenticate": f'Basic realm="{cfg.BASIC_AUTH_REALM}"'},
+    )
+
+# ===== 段階制限（Public/認証あり） =====
+# NOTE: Render の複数インスタンスや再起動をまたぐ永続的な制限にはなりません。
+# まずは最低限の濫用対策として、プロセス内メモリで日次クォータを管理します。
+
+_usage_by_day: dict[tuple[str, str, str], int] = {}
+
+def _client_id() -> str:
+    # なるべく代理IPでも安定するよう X-Forwarded-For を優先
+    ip = request.headers.get("X-Forwarded-For", "")
+    if ip:
+        ip = ip.split(",")[0].strip()
+    if not ip:
+        ip = request.remote_addr or "unknown"
+    ua = request.headers.get("User-Agent", "")[:80]
+    return f"{ip}|{ua}"
+
+def _today_utc() -> str:
+    return dt.datetime.utcnow().strftime("%Y-%m-%d")
+
+def _prune_usage(keep_days: int = 2) -> None:
+    # keep_days 日分だけ残す（簡易）
+    # key: (date, tier, client_id)
+    if not _usage_by_day:
+        return
+    dates = sorted({k[0] for k in _usage_by_day.keys()})
+    if len(dates) <= keep_days:
+        return
+    for d in dates[:-keep_days]:
+        for k in [k for k in list(_usage_by_day.keys()) if k[0] == d]:
+            _usage_by_day.pop(k, None)
+
+def _tier(is_auth: bool) -> str:
+    return "auth" if is_auth else "public"
+
+def enforce_sets_limits(num_sets: int, *, is_auth: bool) -> None:
+    # 絶対上限（全員共通）
+    if num_sets > cfg.ABSOLUTE_MAX_SETS_PER_REQUEST:
+        abort(403, f"作成部数が多すぎます（最大{cfg.ABSOLUTE_MAX_SETS_PER_REQUEST}部まで）。")
+
+    if is_auth:
+        if cfg.AUTH_MAX_SETS_PER_REQUEST > 0 and num_sets > cfg.AUTH_MAX_SETS_PER_REQUEST:
+            abort(403, f"認証ユーザーの作成部数は最大{cfg.AUTH_MAX_SETS_PER_REQUEST}部までです。")
+    else:
+        if num_sets > cfg.PUBLIC_MAX_SETS_PER_REQUEST:
+            abort(403, f"非認証（Public）の作成部数は最大{cfg.PUBLIC_MAX_SETS_PER_REQUEST}部までです。")
+
+def consume_daily_quota(num_sets: int, *, is_auth: bool) -> None:
+    # 日次の絶対上限（全員共通）
+    abs_limit = cfg.ABSOLUTE_MAX_SETS_PER_DAY
+    tier_limit = cfg.AUTH_MAX_SETS_PER_DAY if is_auth else cfg.PUBLIC_MAX_SETS_PER_DAY
+
+    # 0以下なら「そのティアは日次上限なし」（ただし absolute は適用）
+    if tier_limit <= 0:
+        tier_limit = abs_limit
+
+    today = _today_utc()
+    t = _tier(is_auth)
+    cid = _client_id()
+    key = (today, t, cid)
+    used = _usage_by_day.get(key, 0)
+
+    if used + num_sets > tier_limit:
+        abort(429, "本日の作成上限に達しました。")
+    if used + num_sets > abs_limit:
+        abort(429, "本日の作成上限に達しました。")
+
+    _usage_by_day[key] = used + num_sets
+    _prune_usage()
 
 # ストレージ実体（R2 or Local）
 storage = get_storage(cfg)
@@ -199,12 +317,17 @@ def make():
                 request.form.get("num_sets"),
                 default=1,
                 min_v=1,
-                max_v=20,
+                max_v=cfg.ABSOLUTE_MAX_SETS_PER_REQUEST,
                 label="作成部数",
             )
         except ValueError as e:
             flash(str(e))
             return redirect(url_for("make", file=filename))
+
+        # Public/認証ありでの上限チェック（サーバ側で強制）
+        is_auth = bool(getattr(g, "is_auth", False))
+        enforce_sets_limits(num_sets, is_auth=is_auth)
+        consume_daily_quota(num_sets, is_auth=is_auth)
 
         # ファイルチェック
         if not filename or filename not in files:
@@ -396,6 +519,13 @@ def make():
         selected_file=selected_file,
         has_section=has_section,
         sections=sections,
+        is_auth=bool(getattr(g, "is_auth", False)),
+        public_max_sets_per_request=cfg.PUBLIC_MAX_SETS_PER_REQUEST,
+        public_max_sets_per_day=cfg.PUBLIC_MAX_SETS_PER_DAY,
+        auth_max_sets_per_request=cfg.AUTH_MAX_SETS_PER_REQUEST,
+        auth_max_sets_per_day=cfg.AUTH_MAX_SETS_PER_DAY,
+        absolute_max_sets_per_request=cfg.ABSOLUTE_MAX_SETS_PER_REQUEST,
+        absolute_max_sets_per_day=cfg.ABSOLUTE_MAX_SETS_PER_DAY,
     )
 
 

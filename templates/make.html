@@ -98,7 +98,25 @@
         空欄なら通常通り1部だけ作成します。<br>
         数字を入れると、その部数だけ問題PDF／解答PDFを作成します（例：3）。
       </p>
-      <input id="num_sets" class="input" type="number" name="num_sets" min="1" max="20" placeholder="（空欄OK）">
+      <div class="label-desc" style="margin-top:6px;">
+        <strong>認証状態:</strong>
+        {% if is_auth %}
+          <span>認証済み</span>（上限緩和）
+        {% else %}
+          <span>非認証（Public）</span>（制限あり）
+        {% endif %}
+        · <a href="{{ url_for('login') }}">認証する</a>
+        <br>
+        <small>
+          Public: 1回あたり最大 {{ public_max_sets_per_request }}部 / 1日最大 {{ public_max_sets_per_day }}部
+          {% if auth_max_sets_per_request|int > 0 or auth_max_sets_per_day|int > 0 %}
+            · Auth: 1回あたり最大 {{ auth_max_sets_per_request if auth_max_sets_per_request|int > 0 else '上限なし' }} / 1日最大 {{ auth_max_sets_per_day if auth_max_sets_per_day|int > 0 else '上限なし' }}
+          {% else %}
+            · Auth: 1回あたり上限なし（安全のため最大 {{ absolute_max_sets_per_request }}部 / 1日最大 {{ absolute_max_sets_per_day }}部）
+          {% endif %}
+        </small>
+      </div>
+      <input id="num_sets" class="input" type="number" name="num_sets" min="1" max="{{ absolute_max_sets_per_request }}" placeholder="（空欄OK）">
     </div>
 
     <div class="field">
