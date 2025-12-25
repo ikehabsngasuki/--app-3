@@ -62,6 +62,35 @@ app.config["MAX_CONTENT_LENGTH"] = cfg.MAX_CONTENT_LENGTH
 # 認証を『強制』はしない。Authorization ヘッダーが付いている場合のみ認証済み扱いにする。
 # 認証ダイアログを出したい場合は /login を開く。
 
+def _sanitize_basic_realm(realm: str) -> str:
+    """
+    gunicorn/WSGI が受け付けるヘッダー値（latin-1）に収まるように realm を安全化する。
+
+    - 先頭/末尾のクォート(' or ")を除去（Render の env で 'xxx' のように入れがち）
+    - 改行などを除去（ヘッダー注入対策）
+    - latin-1 にエンコードできない（日本語など）場合は英数字にフォールバック
+    """
+    s = (realm or "").strip()
+
+    # ありがち：Render の env に 'xxx' / "xxx" とクォート付きで入れてしまう
+    if len(s) >= 2 and s[0] == s[-1] and s[0] in ("'", '"'):
+        s = s[1:-1].strip()
+
+    # ヘッダー注入対策（念のため）
+    s = s.replace("\r", " ").replace("\n", " ").strip()
+
+    if not s:
+        s = "Eitan Test"
+
+    # gunicorn は latin-1 以外を弾くことがある
+    try:
+        s.encode("latin-1")
+    except UnicodeEncodeError:
+        s = "Eitan Test"
+
+    return s
+
+
 def _basic_auth_enabled() -> bool:
     return bool(cfg.BASIC_AUTH_USER and cfg.BASIC_AUTH_PASS)
 
@@ -98,10 +127,11 @@ def login():
         flash("認証済みです。")
         return redirect(url_for("index"))
 
+    realm = _sanitize_basic_realm(cfg.BASIC_AUTH_REALM)
     return Response(
         "Authentication required",
         401,
-        {"WWW-Authenticate": f'Basic realm="{cfg.BASIC_AUTH_REALM}"'},
+        {"WWW-Authenticate": f'Basic realm="{realm}"'},
     )
 
 # ===== 段階制限（Public/認証あり） =====

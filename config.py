@@ -1,8 +1,10 @@
 # config.py
 import os
 
+
 def mask(s, keep=4):
     return s[:keep] + "..." if s else "(unset)"
+
 
 class Config:
     # Flask 基本
@@ -22,7 +24,12 @@ class Config:
     # - BASIC_AUTH_REALM (任意)
     BASIC_AUTH_USER = os.environ.get("BASIC_AUTH_USER", "")
     BASIC_AUTH_PASS = os.environ.get("BASIC_AUTH_PASS", "")
-    BASIC_AUTH_REALM = os.environ.get("BASIC_AUTH_REALM", "英単語テスト")
+
+    # NOTE:
+    # - realm に日本語やクォート付き('xxx'/"xxx")が入ると、環境によっては
+    #   WWW-Authenticate ヘッダーが無効になり 400 になることがあります。
+    # - app.py 側で realm を安全化して返す想定だが、ここでもデフォルトを英数字にしておくと安全。
+    BASIC_AUTH_REALM = os.environ.get("BASIC_AUTH_REALM", "Eitan Test")
 
     # ===== 生成部数の段階制限（Public/認証あり） =====
     # Public: 誰でも利用できる範囲（濫用対策で上限あり）
@@ -50,7 +57,7 @@ class Config:
     S3_ACCESS_KEY_ID = os.environ.get("S3_ACCESS_KEY_ID")
     S3_SECRET_ACCESS_KEY = os.environ.get("S3_SECRET_ACCESS_KEY")
     S3_BUCKET = os.environ.get("S3_BUCKET")
-    
+
     # 生成されたpdfの保管場所　ローカル
     PDF_FOLDER = os.path.join(BASE_DIR, "generated_pdfs")
 
@@ -64,6 +71,8 @@ class Config:
         print("[ENV] S3_SECRET_ACCESS_KEY:", mask(os.environ.get("S3_SECRET_ACCESS_KEY")))
         print("[ENV] BASIC_AUTH_USER:", mask(os.environ.get("BASIC_AUTH_USER")))
         print("[ENV] BASIC_AUTH_PASS:", "(set)" if os.environ.get("BASIC_AUTH_PASS") else "(unset)")
+        # 追加：realm をログ出し（クォート付きで入れてないか確認しやすい）
+        print("[ENV] BASIC_AUTH_REALM:", os.environ.get("BASIC_AUTH_REALM", "(default)"))
         print("[ENV] PUBLIC_MAX_SETS_PER_REQUEST:", os.environ.get("PUBLIC_MAX_SETS_PER_REQUEST", "2"))
         print("[ENV] PUBLIC_MAX_SETS_PER_DAY:", os.environ.get("PUBLIC_MAX_SETS_PER_DAY", "10"))
         print("[ENV] AUTH_MAX_SETS_PER_REQUEST:", os.environ.get("AUTH_MAX_SETS_PER_REQUEST", "0"))
