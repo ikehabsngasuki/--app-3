@@ -4,6 +4,8 @@ import os
 import uuid
 import datetime as dt
 import hmac
+import time
+from collections import deque
 from urllib.parse import urlencode
 import urllib.request
 import zipfile
@@ -21,6 +23,7 @@ from flask import (
     Response,
     g,
 )
+from werkzeug.middleware.proxy_fix import ProxyFix
 
 from config import Config
 from services.storage import get_storage
@@ -34,7 +37,16 @@ except ImportError:
     from PyPDF2 import PdfReader, PdfWriter  # type: ignore
 
 
+def _is_prod() -> bool:
+    # Render では環境変数が入ることが多い（どれかあれば prod 扱い）
+    if os.environ.get("FLASK_DEBUG", "0") == "1":
+        return False
+    return bool(os.environ.get("RENDER_SERVICE_ID") or os.environ.get("RENDER_EXTERNAL_URL"))
+
+
 cfg = Config()
+# 本番で弱い SECRET_KEY なら起動時に落とす（事故防止）
+Config.validate_secret_key_or_raise(is_prod=_is_prod())
 cfg.log_env()
 
 # ディレクトリ作成（ローカル開発で使用）
@@ -47,6 +59,17 @@ PDF_LOCAL_DIR = os.path.join(cfg.UPLOAD_FOLDER, "pdfs")
 os.makedirs(PDF_LOCAL_DIR, exist_ok=True)
 
 app = Flask(__name__, template_folder=cfg.TEMPLATE_DIR, static_folder="static")
+
+# ===== ProxyFix（Render等のリバプロ配下で、クライアントIP/https判定を正しくする）=====
+# x_for=1: 直前のプロキシが付けた X-Forwarded-For を1段だけ信頼
+app.wsgi_app = ProxyFix(app.wsgi_app, x_for=1, x_proto=1, x_host=1, x_port=1)
+
+# ===== Cookie安全設定 =====
+app.config.update(
+    SESSION_COOKIE_SECURE=cfg.SESSION_COOKIE_SECURE,
+    SESSION_COOKIE_HTTPONLY=cfg.SESSION_COOKIE_HTTPONLY,
+    SESSION_COOKIE_SAMESITE=cfg.SESSION_COOKIE_SAMESITE,
+)
 
 
 @app.route("/healthz", methods=["GET", "HEAD"])
@@ -61,6 +84,7 @@ app.config["MAX_CONTENT_LENGTH"] = cfg.MAX_CONTENT_LENGTH
 # ===== Optional Basic認証（Public/認証ありの段階運用） =====
 # 認証を『強制』はしない。Authorization ヘッダーが付いている場合のみ認証済み扱いにする。
 # 認証ダイアログを出したい場合は /login を開く。
+
 
 def _sanitize_basic_realm(realm: str) -> str:
     """
@@ -94,6 +118,7 @@ def _sanitize_basic_realm(realm: str) -> str:
 def _basic_auth_enabled() -> bool:
     return bool(cfg.BASIC_AUTH_USER and cfg.BASIC_AUTH_PASS)
 
+
 def _basic_auth_ok() -> bool:
     auth = request.authorization
     if not auth:
@@ -101,6 +126,7 @@ def _basic_auth_ok() -> bool:
     return hmac.compare_digest(auth.username or "", cfg.BASIC_AUTH_USER) and hmac.compare_digest(
         auth.password or "", cfg.BASIC_AUTH_PASS
     )
+
 
 @app.before_request
 def _set_auth_flag():
@@ -111,6 +137,7 @@ def _set_auth_flag():
     # Authorization が付いていれば判定（付いていなければ Public）
     g.is_auth = bool(_basic_auth_ok())
     return None
+
 
 @app.route("/login")
 def login():
@@ -134,24 +161,30 @@ def login():
         {"WWW-Authenticate": f'Basic realm="{realm}"'},
     )
 
+
 # ===== 段階制限（Public/認証あり） =====
 # NOTE: Render の複数インスタンスや再起動をまたぐ永続的な制限にはなりません。
 # まずは最低限の濫用対策として、プロセス内メモリで日次クォータを管理します。
 
 _usage_by_day: dict[tuple[str, str, str], int] = {}
 
+
+def _client_ip() -> str:
+    # ProxyFix 適用後は access_route / remote_addr が適切になる
+    if request.access_route:
+        return request.access_route[0]
+    return request.remote_addr or "unknown"
+
+
 def _client_id() -> str:
-    # なるべく代理IPでも安定するよう X-Forwarded-For を優先
-    ip = request.headers.get("X-Forwarded-For", "")
-    if ip:
-        ip = ip.split(",")[0].strip()
-    if not ip:
-        ip = request.remote_addr or "unknown"
-    ua = request.headers.get("User-Agent", "")[:80]
+    ip = _client_ip()
+    ua = (request.headers.get("User-Agent", "") or "")[:80]
     return f"{ip}|{ua}"
+
 
 def _today_utc() -> str:
     return dt.datetime.utcnow().strftime("%Y-%m-%d")
+
 
 def _prune_usage(keep_days: int = 2) -> None:
     # keep_days 日分だけ残す（簡易）
@@ -165,8 +198,10 @@ def _prune_usage(keep_days: int = 2) -> None:
         for k in [k for k in list(_usage_by_day.keys()) if k[0] == d]:
             _usage_by_day.pop(k, None)
 
+
 def _tier(is_auth: bool) -> str:
     return "auth" if is_auth else "public"
+
 
 def enforce_sets_limits(num_sets: int, *, is_auth: bool) -> None:
     # 絶対上限（全員共通）
@@ -179,6 +214,7 @@ def enforce_sets_limits(num_sets: int, *, is_auth: bool) -> None:
     else:
         if num_sets > cfg.PUBLIC_MAX_SETS_PER_REQUEST:
             abort(403, f"非認証（Public）の作成部数は最大{cfg.PUBLIC_MAX_SETS_PER_REQUEST}部までです。")
+
 
 def consume_daily_quota(num_sets: int, *, is_auth: bool) -> None:
     # 日次の絶対上限（全員共通）
@@ -202,6 +238,38 @@ def consume_daily_quota(num_sets: int, *, is_auth: bool) -> None:
 
     _usage_by_day[key] = used + num_sets
     _prune_usage()
+
+
+# ===== /make POST 短期レート制限（インメモリ）=====
+# NOTE: gunicorn複数ワーカー/複数インスタンスだと分散されます（最低限の濫用対策）
+_rate_by_minute: dict[str, deque[float]] = {}
+
+
+def _rate_limit(key: str, *, limit: int, window_seconds: int = 60) -> None:
+    now = time.time()
+    q = _rate_by_minute.setdefault(key, deque())
+
+    cutoff = now - window_seconds
+    while q and q[0] < cutoff:
+        q.popleft()
+
+    if limit > 0 and len(q) >= limit:
+        abort(429, "アクセスが多すぎます。しばらく待ってから再試行してください。")
+
+    q.append(now)
+
+
+def enforce_make_post_rate_limit(*, is_auth: bool) -> None:
+    tier_limit = cfg.AUTH_MAKE_POSTS_PER_MINUTE if is_auth else cfg.PUBLIC_MAKE_POSTS_PER_MINUTE
+    abs_limit = cfg.ABSOLUTE_MAKE_POSTS_PER_MINUTE
+
+    cid = _client_id()
+    tier_key = f"make:{_tier(is_auth)}:{cid}"
+    abs_key = f"make:absolute:{cid}"
+
+    _rate_limit(abs_key, limit=abs_limit)
+    _rate_limit(tier_key, limit=tier_limit)
+
 
 # ストレージ実体（R2 or Local）
 storage = get_storage(cfg)
@@ -328,6 +396,12 @@ def make():
     files = list_xlsx()
 
     if request.method == "POST":
+        # Public/認証あり判定（先に決める：レート制限に使う）
+        is_auth = bool(getattr(g, "is_auth", False))
+
+        # /make POST 短期レート制限
+        enforce_make_post_rate_limit(is_auth=is_auth)
+
         filename = request.form.get("filename", "")
         mode = request.form.get("mode", "en-ja")
 
@@ -355,7 +429,6 @@ def make():
             return redirect(url_for("make", file=filename))
 
         # Public/認証ありでの上限チェック（サーバ側で強制）
-        is_auth = bool(getattr(g, "is_auth", False))
         enforce_sets_limits(num_sets, is_auth=is_auth)
         consume_daily_quota(num_sets, is_auth=is_auth)
 

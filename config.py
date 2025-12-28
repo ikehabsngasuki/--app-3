@@ -18,31 +18,31 @@ class Config:
     FONTS_DIR = os.path.join(BASE_DIR, "fonts")
 
     # ===== Optional Basic 認証（Public/認証ありの段階運用） =====
-    # Render の Environment Variables に設定してください。
-    # - BASIC_AUTH_USER
-    # - BASIC_AUTH_PASS
-    # - BASIC_AUTH_REALM (任意)
     BASIC_AUTH_USER = os.environ.get("BASIC_AUTH_USER", "")
     BASIC_AUTH_PASS = os.environ.get("BASIC_AUTH_PASS", "")
-
-    # NOTE:
-    # - realm に日本語やクォート付き('xxx'/"xxx")が入ると、環境によっては
-    #   WWW-Authenticate ヘッダーが無効になり 400 になることがあります。
-    # - app.py 側で realm を安全化して返す想定だが、ここでもデフォルトを英数字にしておくと安全。
-    BASIC_AUTH_REALM = os.environ.get("BASIC_AUTH_REALM", "Eitan Test")
+    BASIC_AUTH_REALM = os.environ.get("BASIC_AUTH_REALM", "英単語テスト")
 
     # ===== 生成部数の段階制限（Public/認証あり） =====
-    # Public: 誰でも利用できる範囲（濫用対策で上限あり）
     PUBLIC_MAX_SETS_PER_REQUEST = int(os.environ.get("PUBLIC_MAX_SETS_PER_REQUEST", "2"))
     PUBLIC_MAX_SETS_PER_DAY = int(os.environ.get("PUBLIC_MAX_SETS_PER_DAY", "10"))
 
-    # Auth: 認証できるユーザー向け（0以下は「上限なし」扱い）
     AUTH_MAX_SETS_PER_REQUEST = int(os.environ.get("AUTH_MAX_SETS_PER_REQUEST", "0"))
     AUTH_MAX_SETS_PER_DAY = int(os.environ.get("AUTH_MAX_SETS_PER_DAY", "0"))
 
-    # 事故防止のための絶対上限（全員共通）
     ABSOLUTE_MAX_SETS_PER_REQUEST = int(os.environ.get("ABSOLUTE_MAX_SETS_PER_REQUEST", "100"))
     ABSOLUTE_MAX_SETS_PER_DAY = int(os.environ.get("ABSOLUTE_MAX_SETS_PER_DAY", "500"))
+
+    # ===== Cookie / Session 安全設定 =====
+    # Render(HTTPS)なら基本 "1" 推奨
+    SESSION_COOKIE_SECURE = os.environ.get("SESSION_COOKIE_SECURE", "1") == "1"
+    SESSION_COOKIE_HTTPONLY = os.environ.get("SESSION_COOKIE_HTTPONLY", "1") == "1"
+    # 通常は Lax が無難（Strict は利便性が落ちる場合あり）
+    SESSION_COOKIE_SAMESITE = os.environ.get("SESSION_COOKIE_SAMESITE", "Lax")
+
+    # ===== /make POST 短期レート制限（1分あたり）=====
+    PUBLIC_MAKE_POSTS_PER_MINUTE = int(os.environ.get("PUBLIC_MAKE_POSTS_PER_MINUTE", "6"))
+    AUTH_MAKE_POSTS_PER_MINUTE = int(os.environ.get("AUTH_MAKE_POSTS_PER_MINUTE", "30"))
+    ABSOLUTE_MAKE_POSTS_PER_MINUTE = int(os.environ.get("ABSOLUTE_MAKE_POSTS_PER_MINUTE", "60"))
 
     # 拡張子
     ALLOWED_UPLOAD_EXTENSIONS = {".xlsx"}
@@ -61,6 +61,19 @@ class Config:
     # 生成されたpdfの保管場所　ローカル
     PDF_FOLDER = os.path.join(BASE_DIR, "generated_pdfs")
 
+    @staticmethod
+    def validate_secret_key_or_raise(is_prod: bool) -> None:
+        """
+        本番で弱い SECRET_KEY だったら落とす（事故防止）
+        """
+        sk = (Config.SECRET_KEY or "").strip()
+        weak = (sk == "") or (sk == "change-me") or (len(sk) < 32)
+        if is_prod and weak:
+            raise RuntimeError(
+                "FLASK_SECRET_KEY が未設定/弱すぎます。Render の Environment Variables に "
+                "32文字以上の強い値を設定してください。"
+            )
+
     # デバッグログ（任意）
     @staticmethod
     def log_env():
@@ -71,11 +84,16 @@ class Config:
         print("[ENV] S3_SECRET_ACCESS_KEY:", mask(os.environ.get("S3_SECRET_ACCESS_KEY")))
         print("[ENV] BASIC_AUTH_USER:", mask(os.environ.get("BASIC_AUTH_USER")))
         print("[ENV] BASIC_AUTH_PASS:", "(set)" if os.environ.get("BASIC_AUTH_PASS") else "(unset)")
-        # 追加：realm をログ出し（クォート付きで入れてないか確認しやすい）
-        print("[ENV] BASIC_AUTH_REALM:", os.environ.get("BASIC_AUTH_REALM", "(default)"))
+        print("[ENV] BASIC_AUTH_REALM:", os.environ.get("BASIC_AUTH_REALM", "(unset)"))
         print("[ENV] PUBLIC_MAX_SETS_PER_REQUEST:", os.environ.get("PUBLIC_MAX_SETS_PER_REQUEST", "2"))
         print("[ENV] PUBLIC_MAX_SETS_PER_DAY:", os.environ.get("PUBLIC_MAX_SETS_PER_DAY", "10"))
         print("[ENV] AUTH_MAX_SETS_PER_REQUEST:", os.environ.get("AUTH_MAX_SETS_PER_REQUEST", "0"))
         print("[ENV] AUTH_MAX_SETS_PER_DAY:", os.environ.get("AUTH_MAX_SETS_PER_DAY", "0"))
         print("[ENV] ABSOLUTE_MAX_SETS_PER_REQUEST:", os.environ.get("ABSOLUTE_MAX_SETS_PER_REQUEST", "100"))
         print("[ENV] ABSOLUTE_MAX_SETS_PER_DAY:", os.environ.get("ABSOLUTE_MAX_SETS_PER_DAY", "500"))
+        print("[ENV] SESSION_COOKIE_SECURE:", os.environ.get("SESSION_COOKIE_SECURE", "1"))
+        print("[ENV] SESSION_COOKIE_HTTPONLY:", os.environ.get("SESSION_COOKIE_HTTPONLY", "1"))
+        print("[ENV] SESSION_COOKIE_SAMESITE:", os.environ.get("SESSION_COOKIE_SAMESITE", "Lax"))
+        print("[ENV] PUBLIC_MAKE_POSTS_PER_MINUTE:", os.environ.get("PUBLIC_MAKE_POSTS_PER_MINUTE", "6"))
+        print("[ENV] AUTH_MAKE_POSTS_PER_MINUTE:", os.environ.get("AUTH_MAKE_POSTS_PER_MINUTE", "30"))
+        print("[ENV] ABSOLUTE_MAKE_POSTS_PER_MINUTE:", os.environ.get("ABSOLUTE_MAKE_POSTS_PER_MINUTE", "60"))
