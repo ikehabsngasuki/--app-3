@@ -1,0 +1,275 @@
+{% extends "base.html" %}
+
+{% block title %}問題作成（v2）{% endblock %}
+
+{% block content %}
+<h1>問題作成（v2: 複数問題タイプ対応）</h1>
+
+<div class="card">
+  <form method="POST" id="makeForm">
+    <!-- ファイル選択 -->
+    <div class="label">
+      <span class="label-title">ファイルを選択</span>
+      <span class="badge-req">必須</span>
+    </div>
+    <select name="filename" id="fileSelect" onchange="onFileChange()" required>
+      <option value="">-- ファイルを選択 --</option>
+      {% for f in files %}
+        <option value="{{ f }}" {% if f == selected_file %}selected{% endif %}>{{ f }}</option>
+      {% endfor %}
+    </select>
+    <div style="margin-top:6px;">
+      <input type="text" id="fileSearch" class="input" placeholder="検索してフィルタ..." oninput="filterFiles()">
+    </div>
+
+    <!-- 解析結果表示 -->
+    <div id="analysisResult" style="margin-top:18px; {% if not analysis %}display:none;{% endif %}">
+      {% if analysis %}
+        <div style="background:#f7fbff; border:1px solid var(--line); border-radius:10px; padding:14px;">
+          <h3 style="margin-bottom:10px;">検出された問題タイプ</h3>
+          <div style="display:flex; flex-wrap:wrap; gap:10px;">
+            {% for t in analysis.types %}
+              <span style="background:#eaf3ff; border:1px solid #cfe3ff; padding:6px 12px; border-radius:8px;">
+                {{ t.name }} ({{ t.count }}問)
+              </span>
+            {% endfor %}
+          </div>
+          <div style="margin-top:10px; font-size:13px; color:var(--muted);">
+            合計: {{ analysis.total }}問
+            {% if analysis.sections %}
+              / セクション: {{ analysis.sections|join(', ') }}
+            {% endif %}
+          </div>
+          {% if analysis.warnings %}
+            <div style="margin-top:10px; color:#b45309; font-size:13px;">
+              {% for w in analysis.warnings %}
+                <div>{{ w }}</div>
+              {% endfor %}
+            </div>
+          {% endif %}
+        </div>
+      {% endif %}
+    </div>
+
+    <!-- モード選択 -->
+    <div class="label" style="margin-top:24px;">
+      <span class="label-title">設定モード</span>
+    </div>
+    <div style="display:flex; gap:12px; flex-wrap:wrap;">
+      <label style="display:flex; align-items:center; gap:6px; cursor:pointer;">
+        <input type="radio" name="mode" value="simple" id="modeSimple" checked onchange="toggleMode()">
+        <span>かんたん設定</span>
+      </label>
+      <label style="display:flex; align-items:center; gap:6px; cursor:pointer;">
+        <input type="radio" name="mode" value="advanced" id="modeAdvanced" onchange="toggleMode()">
+        <span>詳細設定</span>
+      </label>
+    </div>
+
+    <!-- かんたん設定 -->
+    <div id="simpleSettings" style="margin-top:18px;">
+      <div class="label">
+        <span class="label-title">出題パターン</span>
+      </div>
+      <div style="display:grid; gap:8px;">
+        <label style="display:flex; align-items:center; gap:8px; padding:10px; border:1px solid var(--line); border-radius:8px; cursor:pointer;">
+          <input type="radio" name="pattern" value="vocabulary">
+          <div>
+            <strong>単語テスト</strong>
+            <div style="font-size:12px; color:var(--muted);">単語の意味を答える問題</div>
+          </div>
+        </label>
+        <label style="display:flex; align-items:center; gap:8px; padding:10px; border:1px solid var(--line); border-radius:8px; cursor:pointer;">
+          <input type="radio" name="pattern" value="multiple_choice">
+          <div>
+            <strong>4択テスト</strong>
+            <div style="font-size:12px; color:var(--muted);">文法・語法の選択問題</div>
+          </div>
+        </label>
+        <label style="display:flex; align-items:center; gap:8px; padding:10px; border:1px solid var(--line); border-radius:8px; cursor:pointer;">
+          <input type="radio" name="pattern" value="reorder">
+          <div>
+            <strong>並べ替えテスト</strong>
+            <div style="font-size:12px; color:var(--muted);">語句を正しく並べる問題</div>
+          </div>
+        </label>
+        <label style="display:flex; align-items:center; gap:8px; padding:10px; border:1px solid var(--line); border-radius:8px; cursor:pointer; background:#f7fbff;">
+          <input type="radio" name="pattern" value="mixed" checked>
+          <div>
+            <strong>総合テスト</strong>
+            <div style="font-size:12px; color:var(--muted);">全タイプから出題（バランス配分）</div>
+          </div>
+        </label>
+      </div>
+
+      <!-- 単語用：出題方向 -->
+      <div id="vocabDirectionSimple" style="margin-top:14px;">
+        <div class="label">
+          <span class="label-title">単語の出題形式</span>
+        </div>
+        <div style="display:flex; gap:12px;">
+          <label style="display:flex; align-items:center; gap:6px; cursor:pointer;">
+            <input type="radio" name="vocab_direction" value="en-ja" checked>
+            <span>英語→日本語</span>
+          </label>
+          <label style="display:flex; align-items:center; gap:6px; cursor:pointer;">
+            <input type="radio" name="vocab_direction" value="ja-en">
+            <span>日本語→英語</span>
+          </label>
+        </div>
+      </div>
+
+      <div class="form-grid cols-2" style="margin-top:14px;">
+        <div>
+          <div class="label">
+            <span class="label-title">問題数</span>
+            <span class="badge-req">必須</span>
+          </div>
+          <input type="number" name="count" class="input" value="20" min="1" max="100" required>
+        </div>
+        <div>
+          <div class="label">
+            <span class="label-title">作成部数</span>
+            <span class="label-desc">空欄=1</span>
+          </div>
+          <input type="number" name="num_sets" class="input" value="1" min="1" max="{{ absolute_max_sets_per_request }}">
+        </div>
+      </div>
+    </div>
+
+    <!-- 詳細設定 -->
+    <div id="advancedSettings" style="margin-top:18px; display:none;">
+      <div class="label">
+        <span class="label-title">出題タイプと問題数</span>
+      </div>
+      <div style="display:grid; gap:10px; background:#f7fbff; padding:14px; border-radius:10px; border:1px solid var(--line);">
+        <!-- 単語 -->
+        <div style="display:flex; align-items:center; gap:12px; flex-wrap:wrap;">
+          <label style="display:flex; align-items:center; gap:6px; min-width:100px;">
+            <input type="checkbox" name="vocab_enabled" id="vocabEnabled" checked>
+            <strong>単語</strong>
+          </label>
+          <input type="number" name="vocab_count" class="input" value="10" min="0" max="100" style="width:80px;">
+          <span style="font-size:13px;">問</span>
+          <select name="vocab_direction_adv" style="padding:6px 10px; border-radius:6px; border:1px solid var(--line);">
+            <option value="en-ja">英語→日本語</option>
+            <option value="ja-en">日本語→英語</option>
+          </select>
+        </div>
+        <!-- 4択 -->
+        <div style="display:flex; align-items:center; gap:12px; flex-wrap:wrap;">
+          <label style="display:flex; align-items:center; gap:6px; min-width:100px;">
+            <input type="checkbox" name="mc_enabled" id="mcEnabled" checked>
+            <strong>4択</strong>
+          </label>
+          <input type="number" name="mc_count" class="input" value="5" min="0" max="100" style="width:80px;">
+          <span style="font-size:13px;">問</span>
+        </div>
+        <!-- 並べ替え -->
+        <div style="display:flex; align-items:center; gap:12px; flex-wrap:wrap;">
+          <label style="display:flex; align-items:center; gap:6px; min-width:100px;">
+            <input type="checkbox" name="reorder_enabled" id="reorderEnabled">
+            <strong>並べ替え</strong>
+          </label>
+          <input type="number" name="reorder_count" class="input" value="5" min="0" max="100" style="width:80px;">
+          <span style="font-size:13px;">問</span>
+        </div>
+      </div>
+
+      <!-- セクション絞り込み -->
+      <div id="sectionFilter" style="margin-top:14px; {% if not analysis or not analysis.sections %}display:none;{% endif %}">
+        <div class="label">
+          <span class="label-title">セクション絞り込み（任意）</span>
+        </div>
+        <div style="display:flex; flex-wrap:wrap; gap:8px;" id="sectionCheckboxes">
+          {% if analysis and analysis.sections %}
+            {% for s in analysis.sections %}
+              <label style="display:flex; align-items:center; gap:4px; padding:6px 10px; border:1px solid var(--line); border-radius:6px; cursor:pointer; font-size:13px;">
+                <input type="checkbox" name="sections" value="{{ s }}">
+                {{ s }}
+              </label>
+            {% endfor %}
+          {% endif %}
+        </div>
+      </div>
+
+      <div class="form-grid cols-2" style="margin-top:14px;">
+        <div>
+          <div class="label">
+            <span class="label-title">作成部数</span>
+            <span class="label-desc">空欄=1</span>
+          </div>
+          <input type="number" name="num_sets" class="input" value="1" min="1" max="{{ absolute_max_sets_per_request }}">
+        </div>
+      </div>
+    </div>
+
+    <!-- 送信ボタン -->
+    <div style="margin-top:24px;">
+      <button type="submit" class="btn btn-primary" style="width:100%; font-size:16px; padding:14px;">
+        PDF作成
+      </button>
+    </div>
+
+    <!-- 制限表示 -->
+    <div style="margin-top:12px; font-size:12px; color:var(--muted); text-align:center;">
+      {% if is_auth %}
+        認証済み:
+        {% if auth_max_sets_per_request > 0 %}
+          1回最大{{ auth_max_sets_per_request }}部
+        {% else %}
+          1回上限なし
+        {% endif %}
+        /
+        {% if auth_max_sets_per_day > 0 %}
+          1日最大{{ auth_max_sets_per_day }}部
+        {% else %}
+          1日上限なし
+        {% endif %}
+      {% else %}
+        Public: 1回最大{{ public_max_sets_per_request }}部 / 1日最大{{ public_max_sets_per_day }}部
+        <a href="{{ url_for('login') }}" style="color:var(--brand);">（ログインで拡大）</a>
+      {% endif %}
+    </div>
+  </form>
+</div>
+
+<!-- 旧バージョンへのリンク -->
+<div style="margin-top:18px; text-align:center;">
+  <a href="{{ url_for('make') }}" style="color:var(--muted); font-size:13px;">旧版の問題作成ページへ</a>
+</div>
+
+<script>
+// ファイル検索フィルタ
+function filterFiles() {
+  const query = document.getElementById('fileSearch').value.toLowerCase();
+  const select = document.getElementById('fileSelect');
+  const options = select.querySelectorAll('option');
+  options.forEach(opt => {
+    if (opt.value === '') return;
+    opt.style.display = opt.value.toLowerCase().includes(query) ? '' : 'none';
+  });
+}
+
+// ファイル変更時
+function onFileChange() {
+  const select = document.getElementById('fileSelect');
+  const filename = select.value;
+  if (filename) {
+    window.location.href = '{{ url_for("make_v2") }}?file=' + encodeURIComponent(filename);
+  }
+}
+
+// モード切り替え
+function toggleMode() {
+  const isSimple = document.getElementById('modeSimple').checked;
+  document.getElementById('simpleSettings').style.display = isSimple ? 'block' : 'none';
+  document.getElementById('advancedSettings').style.display = isSimple ? 'none' : 'block';
+}
+
+// ページ読み込み時
+document.addEventListener('DOMContentLoaded', function() {
+  toggleMode();
+});
+</script>
+{% endblock %}

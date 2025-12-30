@@ -27,7 +27,10 @@ from werkzeug.middleware.proxy_fix import ProxyFix
 
 from config import Config
 from services.storage import get_storage
-from services.pdf_service import register_fonts, build_styles, build_pdf
+from services.pdf_service import register_fonts, build_styles, build_pdf, build_mixed_pdf
+from services.sheet_parser import SheetParser, parse_excel
+from services.question_pool import QuestionPool, SampleRequest, assign_numbers
+from models.question import QuestionType
 from utils.files import safe_filename
 
 # ===== PDF結合用（pypdf 推奨、なければ PyPDF2）=====
@@ -75,6 +78,27 @@ app.config.update(
 @app.route("/healthz", methods=["GET", "HEAD"])
 def healthz():
     return "ok", 200
+
+
+# ===== API: Excel ファイル解析 =====
+@app.route("/api/analyze/<path:filename>")
+def api_analyze(filename):
+    """Analyze an Excel file and return question types and sections as JSON."""
+    from flask import jsonify
+
+    files = list_xlsx()
+    if not filename or filename not in files:
+        return jsonify({"success": False, "error": "ファイルが見つかりません"}), 404
+
+    try:
+        data = storage.open_xlsx_as_bytes(filename)
+        result = parse_excel(data)
+
+        return jsonify(result.to_dict())
+
+    except Exception as e:
+        app.logger.exception(f"api_analyze failed: {e}")
+        return jsonify({"success": False, "error": str(e)}), 500
 
 
 app.secret_key = cfg.SECRET_KEY
@@ -622,6 +646,207 @@ def make():
         selected_file=selected_file,
         has_section=has_section,
         sections=sections,
+        is_auth=bool(getattr(g, "is_auth", False)),
+        public_max_sets_per_request=cfg.PUBLIC_MAX_SETS_PER_REQUEST,
+        public_max_sets_per_day=cfg.PUBLIC_MAX_SETS_PER_DAY,
+        auth_max_sets_per_request=cfg.AUTH_MAX_SETS_PER_REQUEST,
+        auth_max_sets_per_day=cfg.AUTH_MAX_SETS_PER_DAY,
+        absolute_max_sets_per_request=cfg.ABSOLUTE_MAX_SETS_PER_REQUEST,
+        absolute_max_sets_per_day=cfg.ABSOLUTE_MAX_SETS_PER_DAY,
+    )
+
+
+# ===== 新PDF作成 (v2): 複数問題タイプ対応 =====
+@app.route("/make_v2", methods=["GET", "POST"])
+def make_v2():
+    """New make page supporting multiple question types."""
+    files = list_xlsx()
+
+    if request.method == "POST":
+        is_auth = bool(getattr(g, "is_auth", False))
+        enforce_make_post_rate_limit(is_auth=is_auth)
+
+        filename = request.form.get("filename", "")
+        mode = request.form.get("mode", "simple")  # "simple" or "advanced"
+
+        # 作成部数
+        try:
+            num_sets = parse_optional_positive_int(
+                request.form.get("num_sets"),
+                default=1,
+                min_v=1,
+                max_v=cfg.ABSOLUTE_MAX_SETS_PER_REQUEST,
+                label="作成部数",
+            )
+        except ValueError as e:
+            flash(str(e))
+            return redirect(url_for("make_v2", file=filename))
+
+        enforce_sets_limits(num_sets, is_auth=is_auth)
+        consume_daily_quota(num_sets, is_auth=is_auth)
+
+        # ファイルチェック
+        if not filename or filename not in files:
+            flash("不正なファイル名です。")
+            return redirect(url_for("make_v2"))
+
+        # Excel解析
+        try:
+            data = storage.open_xlsx_as_bytes(filename)
+            parse_result = parse_excel(data)
+
+            if parse_result.has_errors:
+                for err in parse_result.errors:
+                    flash(err)
+                return redirect(url_for("make_v2", file=filename))
+
+            pool = QuestionPool(parse_result.questions)
+            type_counts = pool.get_type_counts()
+
+        except Exception as e:
+            flash(f"Excelの読み込みに失敗しました: {e}")
+            return redirect(url_for("make_v2"))
+
+        # サンプリング設定の構築
+        vocab_direction = request.form.get("vocab_direction", "en-ja")
+
+        if mode == "simple":
+            # かんたんモード
+            pattern = request.form.get("pattern", "mixed")
+            try:
+                total_count = int(request.form.get("count", "20"))
+            except ValueError:
+                flash("問題数は整数で指定してください。")
+                return redirect(url_for("make_v2", file=filename))
+
+            sample_request = SampleRequest.for_simple_mode(
+                pattern, total_count, type_counts, vocab_direction
+            )
+
+        else:
+            # 詳細モード
+            sample_request = SampleRequest(vocab_direction=vocab_direction)
+
+            if request.form.get("vocab_enabled"):
+                try:
+                    sample_request.vocabulary_count = int(request.form.get("vocab_count", "0"))
+                except ValueError:
+                    sample_request.vocabulary_count = 0
+
+            if request.form.get("mc_enabled"):
+                try:
+                    sample_request.multiple_choice_count = int(request.form.get("mc_count", "0"))
+                except ValueError:
+                    sample_request.multiple_choice_count = 0
+
+            if request.form.get("reorder_enabled"):
+                try:
+                    sample_request.reorder_count = int(request.form.get("reorder_count", "0"))
+                except ValueError:
+                    sample_request.reorder_count = 0
+
+            # セクションフィルタ
+            sections_selected = request.form.getlist("sections")
+            if sections_selected:
+                sample_request.sections = sections_selected
+
+        if sample_request.total_requested <= 0:
+            flash("問題数を1問以上指定してください。")
+            return redirect(url_for("make_v2", file=filename))
+
+        # PDF生成
+        base_name = os.path.splitext(os.path.basename(filename))[0]
+        stamp = dt.datetime.now().strftime("%Y%m%d-%H%M%S")
+        download_args: list[tuple[str, str]] = []
+
+        try:
+            for set_idx in range(1, num_sets + 1):
+                # サンプリング
+                questions, warnings = pool.sample(sample_request)
+                if not questions:
+                    flash("条件に合う問題が見つかりません。")
+                    return redirect(url_for("make_v2", file=filename))
+
+                # 番号付け
+                questions = assign_numbers(questions)
+
+                # タイトル生成
+                uid = uuid.uuid4().hex[:8]
+                suffix = f"_v{set_idx}" if num_sets > 1 else ""
+                q_name = f"questions_mixed_{stamp}{suffix}_{uid}.pdf"
+                a_name = f"answers_mixed_{stamp}{suffix}_{uid}.pdf"
+
+                title = f"{base_name} 総合テスト"
+                if num_sets > 1:
+                    title += f" 第{set_idx}部"
+
+                subtitle = f"{dt.datetime.now().strftime('%Y/%m/%d')} / 出題: {len(questions)}問"
+
+                # 問題PDF
+                q_pdf = build_mixed_pdf(
+                    questions, styles,
+                    with_answers=False,
+                    title=title,
+                    subtitle=subtitle,
+                    vocab_direction=vocab_direction,
+                ).read()
+
+                # 解答PDF
+                a_pdf = build_mixed_pdf(
+                    questions, styles,
+                    with_answers=True,
+                    title=title + "【解答】",
+                    subtitle=subtitle,
+                    vocab_direction=vocab_direction,
+                ).read()
+
+                # 保存
+                if cfg.USE_R2:
+                    q_key = f"generated/{q_name}"
+                    a_key = f"generated/{a_name}"
+                    storage.upload(q_pdf, q_key, "application/pdf")
+                    storage.upload(a_pdf, a_key, "application/pdf")
+                    download_args.append(("q", q_key))
+                    download_args.append(("a", a_key))
+                else:
+                    q_path = os.path.join(PDF_LOCAL_DIR, q_name)
+                    a_path = os.path.join(PDF_LOCAL_DIR, a_name)
+                    with open(q_path, "wb") as f:
+                        f.write(q_pdf)
+                    with open(a_path, "wb") as f:
+                        f.write(a_pdf)
+                    download_args.append(("q", q_name))
+                    download_args.append(("a", a_name))
+
+            if num_sets == 1:
+                flash("問題と解答PDFを作成しました！")
+            else:
+                flash(f"問題と解答PDFを {num_sets} 部作成しました！")
+
+            return redirect(url_for("download") + "?" + urlencode(download_args, doseq=True))
+
+        except Exception as e:
+            flash(f"PDFの作成に失敗しました: {e}")
+            import traceback
+            traceback.print_exc()
+            return redirect(url_for("make_v2"))
+
+    # ===== GET =====
+    selected_file = request.args.get("file", "")
+    analysis = None
+
+    if selected_file in files:
+        try:
+            data = storage.open_xlsx_as_bytes(selected_file)
+            analysis = parse_excel(data).to_dict()
+        except Exception as e:
+            flash(f"Excelの読み込みに失敗しました: {e}")
+
+    return render_template(
+        "make_v2.html",
+        files=files,
+        selected_file=selected_file,
+        analysis=analysis,
         is_auth=bool(getattr(g, "is_auth", False)),
         public_max_sets_per_request=cfg.PUBLIC_MAX_SETS_PER_REQUEST,
         public_max_sets_per_day=cfg.PUBLIC_MAX_SETS_PER_DAY,

@@ -1,23 +1,29 @@
 # services/pdf_service.py
+"""PDF generation service for vocabulary tests and mixed question types."""
+
 import io
 import os
-from typing import Any
+from typing import Any, List, Dict, Optional, Tuple
 import pandas as pd
-from reportlab.platypus import SimpleDocTemplate, Paragraph, Flowable, Table, TableStyle, Spacer
+from reportlab.platypus import (
+    SimpleDocTemplate, Paragraph, Flowable, Table, TableStyle, Spacer, KeepTogether
+)
 from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
 from reportlab.lib import colors
 from reportlab.lib.pagesizes import A4
 from reportlab.pdfbase import pdfmetrics
 from reportlab.pdfbase.ttfonts import TTFont
 
-# === 段落の必要高さを計測するユーティリティ ===
-def measure_para_height(text: str, style, box_width: float, padding: int = 8, min_h: int = 40) -> int:
-    from reportlab.platypus import Paragraph
-    p = Paragraph(text or "", style)
-    _, h = p.wrap(box_width - 2*padding, 10**6)
-    return max(min_h, int(h + 2*padding))
+# Import question models
+from models.question import (
+    QuestionType, Question, VocabularyQuestion,
+    MultipleChoiceQuestion, ReorderQuestion
+)
 
+
+# === Font Registration ===
 def register_fonts(fonts_dir: str):
+    """Register Japanese fonts for PDF generation."""
     font_name = "Helvetica"
     candidates = [
         "NotoSansJP-Regular.ttf",
@@ -43,11 +49,25 @@ def register_fonts(fonts_dir: str):
         print("[Font] 候補フォントなし。Helvetica を使用。")
     return font_name
 
+
+# === Style Builders ===
 def build_styles(font_name: str):
+    """Build paragraph styles for PDF generation."""
     styles = getSampleStyleSheet()
     styles.add(ParagraphStyle(
         name="TitleJP", parent=styles["Heading1"],
         fontName=font_name, fontSize=18, leading=22, spaceAfter=8,
+    ))
+    styles.add(ParagraphStyle(
+        name="SubTitle", parent=styles["Normal"],
+        fontName=font_name, fontSize=10, leading=12, spaceAfter=12,
+        textColor=colors.gray,
+    ))
+    styles.add(ParagraphStyle(
+        name="SectionHeader", parent=styles["Heading2"],
+        fontName=font_name, fontSize=12, leading=14,
+        spaceBefore=16, spaceAfter=8,
+        textColor=colors.HexColor("#333333"),
     ))
     styles.add(ParagraphStyle(
         name="Q", parent=styles["Normal"],
@@ -55,62 +75,38 @@ def build_styles(font_name: str):
         wordWrap='CJK', splitLongWords=1,
     ))
     styles.add(ParagraphStyle(
+        name="QSmall", parent=styles["Normal"],
+        fontName=font_name, fontSize=11, leading=13,
+        wordWrap='CJK', splitLongWords=1,
+    ))
+    styles.add(ParagraphStyle(
         name="A", parent=styles["Normal"],
         fontName=font_name, fontSize=10, leading=13, textColor=colors.red,
         wordWrap='CJK', splitLongWords=1,
     ))
+    styles.add(ParagraphStyle(
+        name="Choice", parent=styles["Normal"],
+        fontName=font_name, fontSize=10, leading=12,
+        wordWrap='CJK', splitLongWords=1,
+    ))
+    styles.add(ParagraphStyle(
+        name="Hint", parent=styles["Normal"],
+        fontName=font_name, fontSize=9, leading=11,
+        textColor=colors.gray,
+    ))
     return styles
 
-class NumberBox(Flowable):
-    def __init__(self, number, width=40, height=40, radius=6, font_name="Helvetica"):
-        super().__init__()
-        self.number = number
-        self.width = width
-        self.height = height
-        self.radius = radius
-        self.font_name = font_name
-    def wrap(self, aw, ah): return self.width, self.height
-    def draw(self):
-        self.canv.setStrokeColor(colors.blue)
-        self.canv.setLineWidth(0.5)
-        self.canv.roundRect(0, 0, self.width, self.height, self.radius, stroke=1, fill=0)
-        self.canv.setFillColor(colors.black)
-        self.canv.setFont(self.font_name, 10)
-        self.canv.drawCentredString(self.width/2, self.height/2 - 4, str(self.number))
 
-class RoundedBox(Flowable):
-    def __init__(self, text, styles, width=100, height=40, radius=6, padding=4):
-        super().__init__()
-        self.text=text; self.styles=styles; self.width=width; self.height=height; self.radius=radius; self.padding=padding
-    def wrap(self, aw, ah): return self.width, self.height
-    def draw(self):
-        self.canv.setStrokeColor(colors.blue); self.canv.setLineWidth(0.5)
-        self.canv.roundRect(0,0,self.width,self.height,self.radius, stroke=1, fill=0)
-        p = Paragraph(self.text, self.styles["Q"])
-        w,h = p.wrap(self.width-2*self.padding, self.height-2*self.padding)
-        p.drawOn(self.canv, self.padding, max(0,(self.height-h)/2))
+# === Utility Functions ===
+def measure_para_height(text: str, style, box_width: float, padding: int = 8, min_h: int = 40) -> int:
+    """Measure required height for paragraph text."""
+    p = Paragraph(text or "", style)
+    _, h = p.wrap(box_width - 2 * padding, 10 ** 6)
+    return max(min_h, int(h + 2 * padding))
 
-class AnswerBox(Flowable):
-    def __init__(self, styles, width=100, height=40, radius=6, answer=None):
-        super().__init__()
-        self.styles=styles; self.width=width; self.height=height; self.radius=radius; self.answer=answer
-    def wrap(self, aw, ah): return self.width, self.height
-    def draw(self):
-        self.canv.setStrokeColor(colors.blue); self.canv.setLineWidth(0.5)
-        self.canv.roundRect(0,0,self.width,self.height,self.radius, stroke=1, fill=0)
-        if self.answer:
-            p = Paragraph(self.answer, self.styles["A"])
-            w,h = p.wrap(self.width-8, self.height-8)
-            p.drawOn(self.canv, 4, max(0,(self.height-h)/2))
 
-# === セル値 → 表示文字列 変換（単一責務ヘルパー） ===
 def cell_to_text(v: Any, *, strip: bool = True, uppercase_bool: bool = False) -> str:
-    """
-    DataFrameのセル値をPDF表示用の文字列に正規化する。
-    - NaN/None は空文字
-    - bool は 'TRUE'/'FALSE'（uppercase_bool=Falseで 'True'/'False'）
-    - それ以外は str()。strip=True なら前後空白をトリム
-    """
+    """Convert DataFrame cell value to display string."""
     if pd.isna(v):
         return ""
     if isinstance(v, bool):
@@ -118,32 +114,352 @@ def cell_to_text(v: Any, *, strip: bool = True, uppercase_bool: bool = False) ->
     s = str(v)
     return s.strip() if strip else s
 
+
+# === Flowable Classes ===
+class NumberBox(Flowable):
+    """Rounded box with a number in the center."""
+
+    def __init__(self, number, width=40, height=40, radius=6, font_name="Helvetica"):
+        super().__init__()
+        self.number = number
+        self.width = width
+        self.height = height
+        self.radius = radius
+        self.font_name = font_name
+
+    def wrap(self, aw, ah):
+        return self.width, self.height
+
+    def draw(self):
+        self.canv.setStrokeColor(colors.blue)
+        self.canv.setLineWidth(0.5)
+        self.canv.roundRect(0, 0, self.width, self.height, self.radius, stroke=1, fill=0)
+        self.canv.setFillColor(colors.black)
+        self.canv.setFont(self.font_name, 10)
+        self.canv.drawCentredString(self.width / 2, self.height / 2 - 4, str(self.number))
+
+
+class RoundedBox(Flowable):
+    """Rounded box with text content."""
+
+    def __init__(self, text, styles, width=100, height=40, radius=6, padding=4):
+        super().__init__()
+        self.text = text
+        self.styles = styles
+        self.width = width
+        self.height = height
+        self.radius = radius
+        self.padding = padding
+
+    def wrap(self, aw, ah):
+        return self.width, self.height
+
+    def draw(self):
+        self.canv.setStrokeColor(colors.blue)
+        self.canv.setLineWidth(0.5)
+        self.canv.roundRect(0, 0, self.width, self.height, self.radius, stroke=1, fill=0)
+        p = Paragraph(self.text, self.styles["Q"])
+        w, h = p.wrap(self.width - 2 * self.padding, self.height - 2 * self.padding)
+        p.drawOn(self.canv, self.padding, max(0, (self.height - h) / 2))
+
+
+class AnswerBox(Flowable):
+    """Rounded box for answer display."""
+
+    def __init__(self, styles, width=100, height=40, radius=6, answer=None):
+        super().__init__()
+        self.styles = styles
+        self.width = width
+        self.height = height
+        self.radius = radius
+        self.answer = answer
+
+    def wrap(self, aw, ah):
+        return self.width, self.height
+
+    def draw(self):
+        self.canv.setStrokeColor(colors.blue)
+        self.canv.setLineWidth(0.5)
+        self.canv.roundRect(0, 0, self.width, self.height, self.radius, stroke=1, fill=0)
+        if self.answer:
+            p = Paragraph(self.answer, self.styles["A"])
+            w, h = p.wrap(self.width - 8, self.height - 8)
+            p.drawOn(self.canv, 4, max(0, (self.height - h) / 2))
+
+
+class SectionHeaderFlowable(Flowable):
+    """Section header with decorative line."""
+
+    def __init__(self, text: str, font_name: str = "Helvetica", width: float = 500):
+        super().__init__()
+        self.text = text
+        self.font_name = font_name
+        self.width = width
+        self.height = 24
+
+    def wrap(self, aw, ah):
+        return self.width, self.height
+
+    def draw(self):
+        # Draw decorative lines
+        line_y = self.height / 2
+        self.canv.setStrokeColor(colors.HexColor("#CCCCCC"))
+        self.canv.setLineWidth(1)
+        self.canv.line(0, line_y, 30, line_y)
+
+        # Draw text
+        self.canv.setFillColor(colors.HexColor("#333333"))
+        self.canv.setFont(self.font_name, 12)
+        text_width = self.canv.stringWidth(self.text, self.font_name, 12)
+        self.canv.drawString(40, line_y - 4, self.text)
+
+        # Draw line after text
+        self.canv.line(50 + text_width, line_y, self.width, line_y)
+
+
+class MultipleChoiceFlowable(Flowable):
+    """Flowable for a single multiple choice question."""
+
+    def __init__(
+        self,
+        question: MultipleChoiceQuestion,
+        styles,
+        width: float = 500,
+        with_answer: bool = False,
+        show_explanation: bool = False,
+    ):
+        super().__init__()
+        self.question = question
+        self.styles = styles
+        self.width = width
+        self.with_answer = with_answer
+        self.show_explanation = show_explanation
+        self._calculate_height()
+
+    def _calculate_height(self):
+        """Calculate required height based on content."""
+        # Base heights
+        self.num_box_size = 36
+        self.question_height = max(36, measure_para_height(
+            self.question.question, self.styles["Q"], self.width - 50, padding=4, min_h=30
+        ))
+        self.choices_height = 28  # Single row of 4 choices
+        self.answer_height = 20 if self.with_answer else 0
+        self.explanation_height = 0
+
+        if self.with_answer and self.show_explanation and self.question.explanation:
+            self.explanation_height = measure_para_height(
+                self.question.explanation, self.styles["Hint"], self.width - 60, padding=4, min_h=16
+            )
+
+        self.height = (
+            self.question_height + 8 +
+            self.choices_height + 8 +
+            self.answer_height +
+            self.explanation_height + 12
+        )
+
+    def wrap(self, aw, ah):
+        return self.width, self.height
+
+    def draw(self):
+        y = self.height
+
+        # Draw number box
+        num_box_x = 0
+        num_box_y = y - self.num_box_size - 4
+        self.canv.setStrokeColor(colors.blue)
+        self.canv.setLineWidth(0.5)
+        self.canv.roundRect(num_box_x, num_box_y, self.num_box_size, self.num_box_size, 6, stroke=1, fill=0)
+        self.canv.setFillColor(colors.black)
+        self.canv.setFont(self.styles["Q"].fontName, 10)
+        num_text = str(self.question.number) if self.question.number else ""
+        self.canv.drawCentredString(
+            num_box_x + self.num_box_size / 2,
+            num_box_y + self.num_box_size / 2 - 4,
+            num_text
+        )
+
+        # Draw question text
+        question_x = self.num_box_size + 12
+        question_y = y - self.question_height
+        p = Paragraph(self.question.question, self.styles["Q"])
+        p.wrap(self.width - question_x, self.question_height)
+        p.drawOn(self.canv, question_x, question_y)
+
+        y = question_y - 8
+
+        # Draw choices (4 in a row)
+        choice_x = question_x
+        choice_width = (self.width - question_x) / 4
+        choice_markers = ["①", "②", "③", "④"]
+
+        for i, (marker, choice) in enumerate(zip(choice_markers, self.question.choices)):
+            x = choice_x + i * choice_width
+            text = f"{marker} {choice}"
+
+            # Highlight correct answer
+            if self.with_answer and i + 1 == self.question.answer:
+                self.canv.setFillColor(colors.red)
+            else:
+                self.canv.setFillColor(colors.black)
+
+            self.canv.setFont(self.styles["Choice"].fontName, 10)
+            self.canv.drawString(x, y - 12, text)
+
+        y -= self.choices_height
+
+        # Draw explanation if showing answers
+        if self.with_answer and self.show_explanation and self.question.explanation:
+            y -= 4
+            self.canv.setFillColor(colors.gray)
+            p = Paragraph(f"→ {self.question.explanation}", self.styles["Hint"])
+            p.wrap(self.width - question_x, self.explanation_height)
+            p.drawOn(self.canv, question_x, y - self.explanation_height)
+
+
+class ReorderFlowable(Flowable):
+    """Flowable for a single reorder question."""
+
+    def __init__(
+        self,
+        question: ReorderQuestion,
+        styles,
+        width: float = 500,
+        with_answer: bool = False,
+    ):
+        super().__init__()
+        self.question = question
+        self.styles = styles
+        self.width = width
+        self.with_answer = with_answer
+        self._calculate_height()
+
+    def _calculate_height(self):
+        """Calculate required height based on content."""
+        self.num_box_size = 36
+
+        # Prompt height
+        self.prompt_height = max(30, measure_para_height(
+            self.question.prompt, self.styles["Q"], self.width - 50, padding=4, min_h=24
+        ))
+
+        # Words display height
+        words_text = f"[ {self.question.get_words_display()} ]"
+        self.words_height = max(24, measure_para_height(
+            words_text, self.styles["QSmall"], self.width - 60, padding=4, min_h=20
+        ))
+
+        # Hint height
+        self.hint_height = 16 if self.question.hint else 0
+
+        # Answer line height
+        self.answer_line_height = 24
+
+        # Answer text height (if showing)
+        self.answer_height = 0
+        if self.with_answer:
+            self.answer_height = max(20, measure_para_height(
+                self.question.answer, self.styles["A"], self.width - 60, padding=4, min_h=18
+            ))
+
+        self.height = (
+            self.prompt_height + 8 +
+            self.words_height + 4 +
+            self.hint_height +
+            self.answer_line_height +
+            self.answer_height + 12
+        )
+
+    def wrap(self, aw, ah):
+        return self.width, self.height
+
+    def draw(self):
+        y = self.height
+
+        # Draw number box
+        num_box_x = 0
+        num_box_y = y - self.num_box_size - 4
+        self.canv.setStrokeColor(colors.blue)
+        self.canv.setLineWidth(0.5)
+        self.canv.roundRect(num_box_x, num_box_y, self.num_box_size, self.num_box_size, 6, stroke=1, fill=0)
+        self.canv.setFillColor(colors.black)
+        self.canv.setFont(self.styles["Q"].fontName, 10)
+        num_text = str(self.question.number) if self.question.number else ""
+        self.canv.drawCentredString(
+            num_box_x + self.num_box_size / 2,
+            num_box_y + self.num_box_size / 2 - 4,
+            num_text
+        )
+
+        # Draw prompt (Japanese instruction)
+        content_x = self.num_box_size + 12
+        prompt_y = y - self.prompt_height
+        p = Paragraph(self.question.prompt, self.styles["Q"])
+        p.wrap(self.width - content_x, self.prompt_height)
+        p.drawOn(self.canv, content_x, prompt_y)
+
+        y = prompt_y - 8
+
+        # Draw words to arrange
+        words_text = f"[ {self.question.get_words_display()} ]"
+        self.canv.setFillColor(colors.HexColor("#444444"))
+        p = Paragraph(words_text, self.styles["QSmall"])
+        p.wrap(self.width - content_x, self.words_height)
+        p.drawOn(self.canv, content_x, y - self.words_height)
+
+        y -= self.words_height + 4
+
+        # Draw hint if present
+        if self.question.hint:
+            self.canv.setFillColor(colors.gray)
+            hint_text = f"※ {self.question.hint} で始める"
+            self.canv.setFont(self.styles["Hint"].fontName, 9)
+            self.canv.drawString(content_x, y - 10, hint_text)
+            y -= self.hint_height
+
+        # Draw answer line or answer
+        if self.with_answer:
+            # Show the answer in red
+            y -= 8
+            p = Paragraph(self.question.answer, self.styles["A"])
+            p.wrap(self.width - content_x, self.answer_height)
+            p.drawOn(self.canv, content_x, y - self.answer_height)
+        else:
+            # Draw blank line
+            y -= 4
+            self.canv.setStrokeColor(colors.HexColor("#CCCCCC"))
+            self.canv.setLineWidth(0.5)
+            line_y = y - 12
+            self.canv.line(content_x, line_y, self.width - 20, line_y)
+
+
+# === Legacy PDF Builder (for backward compatibility) ===
 def build_pdf(
     df: pd.DataFrame,
     styles,
     with_answers: bool = False,
     *,
-    question_col: str = "word",     # 英和=word / 和英=meaning
-    answer_col: str = "meaning",    # 英和=meaning / 和英=word
+    question_col: str = "word",
+    answer_col: str = "meaning",
     title=None,
 ):
+    """Build PDF from DataFrame (legacy vocabulary format)."""
     buffer = io.BytesIO()
     doc = SimpleDocTemplate(buffer, pagesize=A4, leftMargin=20, rightMargin=20, topMargin=20, bottomMargin=20)
     story = []
 
-    # タイトル（任意）
     if title:
         story.append(Paragraph(title, styles.get("TitleJP", styles["Q"])))
-        story.append(Spacer(1, 6))  # 少し余白
+        story.append(Spacer(1, 6))
 
     PAGE_WIDTH, PAGE_HEIGHT = A4
     usable_width = PAGE_WIDTH - doc.leftMargin - doc.rightMargin
     gap = 12
     num_width = 40
-    base_row_h = 40  # 最低行高
+    base_row_h = 40
 
-    # 左右2セット（番号/問題/解答）
-    remaining_width = usable_width - num_width*2 - gap*5
+    remaining_width = usable_width - num_width * 2 - gap * 5
     q_width = remaining_width * 0.5 / 2
     a_width = remaining_width * 0.5 / 2
 
@@ -151,44 +467,38 @@ def build_pdf(
                  gap, num_width, gap, q_width, gap, a_width]
 
     font_for_boxes = styles["Q"].fontName
-    padding = 8  # 計測/描画で整合を取るため固定
+    padding = 8
 
     data = []
     row = []
-    pair = []  # 左右2問をまとめて高さ決定
+    pair = []
 
     for i, r in df.iterrows():
-        # 値の準備
         try:
             disp_no = int(r.get("number", ""))
         except Exception:
             disp_no = r.get("number", "")
 
-        # 出題/解答（ブール/NaNを安全に扱う）
         q_text = cell_to_text(r.get(question_col, None))
         ans_text = cell_to_text(r.get(answer_col, None)) if with_answers else ""
 
-        # 高さ計測
         h_q = measure_para_height(q_text, styles["Q"], q_width, padding=padding, min_h=base_row_h)
         h_a = measure_para_height(ans_text, styles["A"], a_width, padding=padding, min_h=base_row_h) if with_answers else base_row_h
         need_h = max(base_row_h, h_q, h_a)
 
         pair.append((disp_no, q_text, ans_text, need_h))
 
-        # 2件そろうか最終行で1段作成
         if len(pair) == 2 or i == len(df) - 1:
             left = pair[0]
             right = pair[1] if len(pair) == 2 else None
             row_h = max(left[3], right[3] if right else base_row_h)
 
-            # 左側
             row.extend([
                 NumberBox(left[0], num_width, row_h, font_name=font_for_boxes), "",
                 RoundedBox(left[1], styles, q_width, row_h, padding=padding), "",
                 AnswerBox(styles, a_width, row_h, answer=left[2] if with_answers else None)
             ])
 
-            # 右側（無ければ空埋め）
             if right:
                 row.extend([
                     "", NumberBox(right[0], num_width, row_h, font_name=font_for_boxes), "",
@@ -211,6 +521,284 @@ def build_pdf(
         ("BOTTOMPADDING", (0, 0), (-1, -1), 0),
     ]))
     story.append(table)
+    doc.build(story)
+    buffer.seek(0)
+    return buffer
+
+
+# === New Mixed PDF Builder ===
+def build_mixed_pdf(
+    questions: List[Question],
+    styles,
+    with_answers: bool = False,
+    *,
+    title: str = None,
+    subtitle: str = None,
+    vocab_direction: str = "en-ja",
+    show_explanations: bool = True,
+) -> io.BytesIO:
+    """Build PDF with mixed question types.
+
+    Args:
+        questions: List of Question objects (already numbered in order).
+        styles: ReportLab styles dictionary.
+        with_answers: Whether to show answers.
+        title: PDF title.
+        subtitle: Subtitle (e.g., date, range info).
+        vocab_direction: Direction for vocabulary questions.
+        show_explanations: Whether to show explanations for MC questions.
+
+    Returns:
+        BytesIO buffer containing the PDF.
+    """
+    buffer = io.BytesIO()
+    doc = SimpleDocTemplate(
+        buffer, pagesize=A4,
+        leftMargin=20, rightMargin=20,
+        topMargin=20, bottomMargin=20
+    )
+    story = []
+
+    PAGE_WIDTH, PAGE_HEIGHT = A4
+    usable_width = PAGE_WIDTH - doc.leftMargin - doc.rightMargin
+
+    # Title
+    if title:
+        story.append(Paragraph(title, styles.get("TitleJP", styles["Q"])))
+    if subtitle:
+        story.append(Paragraph(subtitle, styles.get("SubTitle", styles["Normal"])))
+    if title or subtitle:
+        story.append(Spacer(1, 12))
+
+    # Group questions by type
+    grouped: Dict[QuestionType, List[Question]] = {}
+    for q in questions:
+        if q.type not in grouped:
+            grouped[q.type] = []
+        grouped[q.type].append(q)
+
+    # Type order
+    type_order = [QuestionType.VOCABULARY, QuestionType.MULTIPLE_CHOICE, QuestionType.REORDER]
+    font_name = styles["Q"].fontName
+
+    for q_type in type_order:
+        if q_type not in grouped:
+            continue
+
+        type_questions = grouped[q_type]
+        if not type_questions:
+            continue
+
+        # Get number range for section header
+        numbers = [q.number for q in type_questions if q.number is not None]
+        if numbers:
+            range_text = f"({min(numbers)}-{max(numbers)})"
+        else:
+            range_text = ""
+
+        # Section header
+        section_text = f"{q_type.get_display_name()} {range_text}"
+        story.append(SectionHeaderFlowable(section_text, font_name, usable_width))
+        story.append(Spacer(1, 8))
+
+        if q_type == QuestionType.VOCABULARY:
+            # Use existing 2-column layout for vocabulary
+            story.extend(_build_vocabulary_section(
+                type_questions, styles, usable_width, with_answers, vocab_direction
+            ))
+        elif q_type == QuestionType.MULTIPLE_CHOICE:
+            # Multiple choice layout
+            for q in type_questions:
+                flowable = MultipleChoiceFlowable(
+                    q, styles, usable_width,
+                    with_answer=with_answers,
+                    show_explanation=show_explanations
+                )
+                story.append(KeepTogether([flowable, Spacer(1, 8)]))
+        elif q_type == QuestionType.REORDER:
+            # Reorder layout
+            for q in type_questions:
+                flowable = ReorderFlowable(
+                    q, styles, usable_width,
+                    with_answer=with_answers
+                )
+                story.append(KeepTogether([flowable, Spacer(1, 8)]))
+
+        story.append(Spacer(1, 16))
+
+    doc.build(story)
+    buffer.seek(0)
+    return buffer
+
+
+def _build_vocabulary_section(
+    questions: List[VocabularyQuestion],
+    styles,
+    usable_width: float,
+    with_answers: bool,
+    direction: str = "en-ja",
+) -> List:
+    """Build vocabulary section with 2-column layout."""
+    story = []
+
+    gap = 12
+    num_width = 40
+    base_row_h = 40
+    padding = 8
+
+    remaining_width = usable_width - num_width * 2 - gap * 5
+    q_width = remaining_width * 0.5 / 2
+    a_width = remaining_width * 0.5 / 2
+
+    colWidths = [num_width, gap, q_width, gap, a_width,
+                 gap, num_width, gap, q_width, gap, a_width]
+
+    font_for_boxes = styles["Q"].fontName
+
+    data = []
+    row = []
+    pair = []
+
+    for i, q in enumerate(questions):
+        disp_no = q.number if q.number is not None else i + 1
+        q_text = q.get_question_text(direction)
+        ans_text = q.get_answer_text(direction) if with_answers else ""
+
+        h_q = measure_para_height(q_text, styles["Q"], q_width, padding=padding, min_h=base_row_h)
+        h_a = measure_para_height(ans_text, styles["A"], a_width, padding=padding, min_h=base_row_h) if with_answers else base_row_h
+        need_h = max(base_row_h, h_q, h_a)
+
+        pair.append((disp_no, q_text, ans_text, need_h))
+
+        if len(pair) == 2 or i == len(questions) - 1:
+            left = pair[0]
+            right = pair[1] if len(pair) == 2 else None
+            row_h = max(left[3], right[3] if right else base_row_h)
+
+            row.extend([
+                NumberBox(left[0], num_width, row_h, font_name=font_for_boxes), "",
+                RoundedBox(left[1], styles, q_width, row_h, padding=padding), "",
+                AnswerBox(styles, a_width, row_h, answer=left[2] if with_answers else None)
+            ])
+
+            if right:
+                row.extend([
+                    "", NumberBox(right[0], num_width, row_h, font_name=font_for_boxes), "",
+                    RoundedBox(right[1], styles, q_width, row_h, padding=padding), "",
+                    AnswerBox(styles, a_width, row_h, answer=right[2] if with_answers else None)
+                ])
+            else:
+                row.extend(["", "", "", "", ""])
+
+            data.append(row)
+            row = []
+            pair = []
+
+    if data:
+        table = Table(data, colWidths=colWidths, hAlign="CENTER")
+        table.setStyle(TableStyle([
+            ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+            ("LEFTPADDING", (0, 0), (-1, -1), 0),
+            ("RIGHTPADDING", (0, 0), (-1, -1), 0),
+            ("TOPPADDING", (0, 0), (-1, -1), 0),
+            ("BOTTOMPADDING", (0, 0), (-1, -1), 0),
+        ]))
+        story.append(table)
+
+    return story
+
+
+def build_answer_sheet_compact(
+    questions: List[Question],
+    styles,
+    *,
+    title: str = None,
+    vocab_direction: str = "en-ja",
+) -> io.BytesIO:
+    """Build a compact answer sheet listing all answers.
+
+    Args:
+        questions: List of Question objects.
+        styles: ReportLab styles dictionary.
+        title: PDF title.
+        vocab_direction: Direction for vocabulary questions.
+
+    Returns:
+        BytesIO buffer containing the PDF.
+    """
+    buffer = io.BytesIO()
+    doc = SimpleDocTemplate(
+        buffer, pagesize=A4,
+        leftMargin=20, rightMargin=20,
+        topMargin=20, bottomMargin=20
+    )
+    story = []
+
+    # Title
+    if title:
+        story.append(Paragraph(f"{title}【解答】", styles.get("TitleJP", styles["Q"])))
+        story.append(Spacer(1, 12))
+
+    # Group by type
+    grouped: Dict[QuestionType, List[Question]] = {}
+    for q in questions:
+        if q.type not in grouped:
+            grouped[q.type] = []
+        grouped[q.type].append(q)
+
+    type_order = [QuestionType.VOCABULARY, QuestionType.MULTIPLE_CHOICE, QuestionType.REORDER]
+
+    for q_type in type_order:
+        if q_type not in grouped:
+            continue
+
+        type_questions = grouped[q_type]
+        if not type_questions:
+            continue
+
+        # Section header
+        story.append(Paragraph(f"━━ {q_type.get_display_name()} 解答 ━━", styles["SectionHeader"]))
+        story.append(Spacer(1, 4))
+
+        if q_type == QuestionType.VOCABULARY:
+            # Compact format: "1. answer  2. answer  3. answer"
+            answers = []
+            for q in type_questions:
+                num = q.number if q.number else "?"
+                ans = q.get_answer_text(vocab_direction)
+                answers.append(f"{num}. {ans}")
+
+            # Join with spaces, wrap at reasonable points
+            text = "    ".join(answers)
+            story.append(Paragraph(text, styles["Choice"]))
+
+        elif q_type == QuestionType.MULTIPLE_CHOICE:
+            # Format: "1. ① answer  2. ② answer"
+            markers = ["①", "②", "③", "④"]
+            answers = []
+            for q in type_questions:
+                num = q.number if q.number else "?"
+                marker = markers[q.answer - 1] if 1 <= q.answer <= 4 else "?"
+                answers.append(f"{num}. {marker}")
+
+            text = "    ".join(answers)
+            story.append(Paragraph(text, styles["Choice"]))
+
+            # Show explanations if available
+            explanations = [(q.number, q.explanation) for q in type_questions if q.explanation]
+            if explanations:
+                story.append(Spacer(1, 8))
+                for num, exp in explanations:
+                    story.append(Paragraph(f"{num}. → {exp}", styles["Hint"]))
+
+        elif q_type == QuestionType.REORDER:
+            # One answer per line
+            for q in type_questions:
+                num = q.number if q.number else "?"
+                story.append(Paragraph(f"{num}. {q.answer}", styles["Choice"]))
+
+        story.append(Spacer(1, 12))
+
     doc.build(story)
     buffer.seek(0)
     return buffer
