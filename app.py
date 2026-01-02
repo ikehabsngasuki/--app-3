@@ -656,6 +656,34 @@ def make():
     )
 
 
+# ===== デザインプレビュー（一時的） =====
+@app.route("/make_v2_preview")
+def make_v2_preview():
+    """Preview for new design."""
+    files = list_xlsx()
+    selected_file = request.args.get("file", "")
+    analysis = None
+    if selected_file and selected_file in files:
+        try:
+            data = storage.open_xlsx_as_bytes(selected_file)
+            analysis = parse_excel(data).to_dict()
+        except:
+            pass
+    is_auth = bool(getattr(g, "is_auth", False))
+    return render_template(
+        "make_v2_preview.html",
+        files=files,
+        selected_file=selected_file,
+        analysis=analysis,
+        is_auth=is_auth,
+        public_max_sets_per_request=cfg.PUBLIC_MAX_SETS_PER_REQUEST,
+        public_max_sets_per_day=cfg.PUBLIC_MAX_SETS_PER_DAY,
+        auth_max_sets_per_request=cfg.AUTH_MAX_SETS_PER_REQUEST,
+        auth_max_sets_per_day=cfg.AUTH_MAX_SETS_PER_DAY,
+        absolute_max_sets_per_request=cfg.ABSOLUTE_MAX_SETS_PER_REQUEST,
+    )
+
+
 # ===== 新PDF作成 (v2): 複数問題タイプ対応 =====
 @app.route("/make_v2", methods=["GET", "POST"])
 def make_v2():

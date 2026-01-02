@@ -1,0 +1,155 @@
+{% extends "base.html" %}
+{% block title %}問題作成 | 英単語テストPDF{% endblock %}
+{% block content %}
+
+<!-- 説明カード -->
+<div class="card">
+  <h2>問題の作成</h2>
+  <p class="label-desc" style="margin-left:0; font-size:13px; line-height:1.7;">
+    アップロード済みの Excel から問題PDF／解答PDFを作成します。<br>
+    <strong>対応形式:</strong> 単語テスト / 4択問題 / 並べ替え問題 / 混合出題
+  </p>
+</div>
+
+<!-- メインフォーム -->
+<div class="card">
+  <h3>ファイルから作成</h3>
+
+  <form action="{{ url_for('make_v2') }}" method="post">
+    <!-- ファイル選択 -->
+    <div class="field">
+      <label class="label" for="filename">対象ファイル</label>
+      <p class="label-desc" style="margin-left:0;">
+        ファイル名で絞り込みできます。
+      </p>
+      <input id="fileSearch" type="text" class="input" placeholder="ファイル名で検索..." style="margin-bottom:6px;">
+      <select id="filename" name="filename" class="input" required>
+        <option value="">ファイルを選択してください</option>
+        {% for f in files %}
+        {% set label = f|replace('uploads/', '') %}
+        <option value="{{ f }}" {% if f==selected_file %}selected{% endif %}>{{ label }}</option>
+        {% endfor %}
+      </select>
+    </div>
+
+    <!-- 解析結果（ファイル選択後に表示） -->
+    {% if analysis %}
+    <div class="field">
+      <label class="label">検出された問題タイプ</label>
+      <div style="display:flex; flex-wrap:wrap; gap:8px; margin-top:4px;">
+        {% for t in analysis.types %}
+        <span style="background:#eaf3ff; border:1px solid #cfe3ff; padding:6px 12px; border-radius:8px; font-size:13px;">
+          {{ t.name }} <strong>{{ t.count }}問</strong>
+        </span>
+        {% endfor %}
+      </div>
+      <p class="label-desc" style="margin-left:0; margin-top:6px;">
+        合計: {{ analysis.total }}問
+        {% if analysis.sections %} / セクション: {{ analysis.sections|length }}個{% endif %}
+      </p>
+    </div>
+    {% endif %}
+
+    <!-- 出題パターン -->
+    <div class="field">
+      <label class="label">出題パターン</label>
+      <p class="label-desc" style="margin-left:0;">どの問題タイプを出題するか選択します。</p>
+      <div style="display:flex; flex-wrap:wrap; gap:10px; margin-top:6px;">
+        <label style="display:flex; align-items:center; gap:6px; padding:8px 14px; border:1px solid var(--line); border-radius:8px; cursor:pointer;">
+          <input type="radio" name="pattern" value="mixed" checked> 総合（混合）
+        </label>
+        <label style="display:flex; align-items:center; gap:6px; padding:8px 14px; border:1px solid var(--line); border-radius:8px; cursor:pointer;">
+          <input type="radio" name="pattern" value="vocabulary"> 単語のみ
+        </label>
+        <label style="display:flex; align-items:center; gap:6px; padding:8px 14px; border:1px solid var(--line); border-radius:8px; cursor:pointer;">
+          <input type="radio" name="pattern" value="multiple_choice"> 4択のみ
+        </label>
+        <label style="display:flex; align-items:center; gap:6px; padding:8px 14px; border:1px solid var(--line); border-radius:8px; cursor:pointer;">
+          <input type="radio" name="pattern" value="reorder"> 並べ替えのみ
+        </label>
+      </div>
+    </div>
+
+    <!-- 単語の出題方向（単語含む場合） -->
+    <div class="field">
+      <label class="label">単語の出題形式</label>
+      <div style="display:flex; gap:12px;">
+        <label style="display:flex; align-items:center; gap:6px;">
+          <input type="radio" name="vocab_direction" value="en-ja" checked> 英語→日本語
+        </label>
+        <label style="display:flex; align-items:center; gap:6px;">
+          <input type="radio" name="vocab_direction" value="ja-en"> 日本語→英語
+        </label>
+      </div>
+    </div>
+
+    <!-- セクション選択（ある場合） -->
+    {% if analysis and analysis.sections %}
+    <div class="field">
+      <label class="label">セクション選択（任意）</label>
+      <p class="label-desc" style="margin-left:0;">未選択の場合は全セクションから出題します。</p>
+      <select name="sections" multiple class="input" size="{{ [analysis.sections|length, 6]|min }}" style="height:auto;">
+        {% for s in analysis.sections %}
+        <option value="{{ s }}">{{ s }}</option>
+        {% endfor %}
+      </select>
+    </div>
+    {% endif %}
+
+    <!-- 出題数・部数 -->
+    <div class="form-grid cols-2">
+      <div class="field">
+        <label class="label" for="count">出題数</label>
+        <input id="count" class="input" type="number" name="count" value="20" min="1" max="100">
+      </div>
+      <div class="field">
+        <label class="label" for="num_sets">作成部数</label>
+        <p class="label-desc" style="margin-left:0;">空欄なら1部</p>
+        <input id="num_sets" class="input" type="number" name="num_sets" min="1" placeholder="1">
+      </div>
+    </div>
+
+    <!-- 制限表示 -->
+    <div class="field">
+      <p class="label-desc" style="margin-left:0;">
+        <strong>認証状態:</strong>
+        {% if is_auth %}認証済み{% else %}非認証（Public）{% endif %}
+        · <a href="{{ url_for('login') }}">認証する</a><br>
+        <small>Public: 1回最大{{ public_max_sets_per_request }}部 / 1日最大{{ public_max_sets_per_day }}部</small>
+      </p>
+    </div>
+
+    <!-- 送信ボタン -->
+    <div class="actions" style="margin-top:20px;">
+      <button type="submit" class="btn btn-primary" {% if not selected_file %}disabled{% endif %}>
+        PDFを作成
+      </button>
+    </div>
+  </form>
+</div>
+
+<!-- 旧版リンク -->
+<p style="text-align:center; margin-top:12px;">
+  <a href="{{ url_for('make') }}" style="color:var(--muted); font-size:13px;">旧版の問題作成ページへ</a>
+</p>
+
+<script>
+(function(){
+  const search = document.getElementById('fileSearch');
+  const select = document.getElementById('filename');
+  if(!search || !select) return;
+  const opts = Array.from(select.options).slice(1);
+  search.addEventListener('input', function(){
+    const q = this.value.toLowerCase();
+    select.innerHTML = '<option value="">ファイルを選択してください</option>';
+    opts.forEach(o => {
+      if(!q || o.text.toLowerCase().includes(q)) select.appendChild(o.cloneNode(true));
+    });
+  });
+  select.addEventListener('change', function(){
+    if(this.value) location.href='{{ url_for("make_v2") }}?file=' + encodeURIComponent(this.value);
+  });
+})();
+</script>
+
+{% endblock %}

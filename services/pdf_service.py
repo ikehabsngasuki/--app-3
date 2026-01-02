@@ -188,7 +188,7 @@ class AnswerBox(Flowable):
 
 
 class SectionHeaderFlowable(Flowable):
-    """Section header with decorative line."""
+    """Minimal section header with thin line (Design C style)."""
 
     def __init__(self, text: str, font_name: str = "Helvetica", width: float = 500):
         super().__init__()
@@ -201,24 +201,20 @@ class SectionHeaderFlowable(Flowable):
         return self.width, self.height
 
     def draw(self):
-        # Draw decorative lines
-        line_y = self.height / 2
+        # Section text (muted color)
+        self.canv.setFillColor(colors.HexColor("#555555"))
+        self.canv.setFont(self.font_name, 10)
+        text_width = self.canv.stringWidth(self.text, self.font_name, 10)
+        self.canv.drawString(0, 8, self.text)
+
+        # Thin line after text
         self.canv.setStrokeColor(colors.HexColor("#CCCCCC"))
-        self.canv.setLineWidth(1)
-        self.canv.line(0, line_y, 30, line_y)
-
-        # Draw text
-        self.canv.setFillColor(colors.HexColor("#333333"))
-        self.canv.setFont(self.font_name, 12)
-        text_width = self.canv.stringWidth(self.text, self.font_name, 12)
-        self.canv.drawString(40, line_y - 4, self.text)
-
-        # Draw line after text
-        self.canv.line(50 + text_width, line_y, self.width, line_y)
+        self.canv.setLineWidth(0.5)
+        self.canv.line(text_width + 12, 12, self.width, 12)
 
 
 class MultipleChoiceFlowable(Flowable):
-    """Flowable for a single multiple choice question."""
+    """Multiple choice question with Design C style (whitespace-based)."""
 
     def __init__(
         self,
@@ -234,92 +230,43 @@ class MultipleChoiceFlowable(Flowable):
         self.width = width
         self.with_answer = with_answer
         self.show_explanation = show_explanation
-        self._calculate_height()
-
-    def _calculate_height(self):
-        """Calculate required height based on content."""
-        # Base heights
-        self.num_box_size = 36
-        self.question_height = max(36, measure_para_height(
-            self.question.question, self.styles["Q"], self.width - 50, padding=4, min_h=30
-        ))
-        self.choices_height = 28  # Single row of 4 choices
-        self.answer_height = 20 if self.with_answer else 0
-        self.explanation_height = 0
-
-        if self.with_answer and self.show_explanation and self.question.explanation:
-            self.explanation_height = measure_para_height(
-                self.question.explanation, self.styles["Hint"], self.width - 60, padding=4, min_h=16
-            )
-
-        self.height = (
-            self.question_height + 8 +
-            self.choices_height + 8 +
-            self.answer_height +
-            self.explanation_height + 12
-        )
+        self.height = 64  # Generous whitespace
 
     def wrap(self, aw, ah):
         return self.width, self.height
 
     def draw(self):
-        y = self.height
+        y = self.height - 8
 
-        # Draw number box
-        num_box_x = 0
-        num_box_y = y - self.num_box_size - 4
-        self.canv.setStrokeColor(colors.blue)
-        self.canv.setLineWidth(0.5)
-        self.canv.roundRect(num_box_x, num_box_y, self.num_box_size, self.num_box_size, 6, stroke=1, fill=0)
-        self.canv.setFillColor(colors.black)
+        # Question number (muted, right-aligned)
+        self.canv.setFillColor(colors.HexColor("#666666"))
         self.canv.setFont(self.styles["Q"].fontName, 10)
-        num_text = str(self.question.number) if self.question.number else ""
-        self.canv.drawCentredString(
-            num_box_x + self.num_box_size / 2,
-            num_box_y + self.num_box_size / 2 - 4,
-            num_text
-        )
+        self.canv.drawRightString(28, y - 4, f"{self.question.number}.")
 
-        # Draw question text
-        question_x = self.num_box_size + 12
-        question_y = y - self.question_height
-        p = Paragraph(self.question.question, self.styles["Q"])
-        p.wrap(self.width - question_x, self.question_height)
-        p.drawOn(self.canv, question_x, question_y)
+        # Question text
+        self.canv.setFillColor(colors.black)
+        self.canv.setFont(self.styles["Q"].fontName, 11)
+        self.canv.drawString(36, y - 4, self.question.question)
 
-        y = question_y - 8
+        # Choices with spacing
+        y -= 36
+        markers = ["①", "②", "③", "④"]
+        choice_width = (self.width - 60) / 4
 
-        # Draw choices (4 in a row)
-        choice_x = question_x
-        choice_width = (self.width - question_x) / 4
-        choice_markers = ["①", "②", "③", "④"]
+        for i, (marker, choice) in enumerate(zip(markers, self.question.choices)):
+            x = 36 + i * choice_width
 
-        for i, (marker, choice) in enumerate(zip(choice_markers, self.question.choices)):
-            x = choice_x + i * choice_width
-            text = f"{marker} {choice}"
-
-            # Highlight correct answer
             if self.with_answer and i + 1 == self.question.answer:
                 self.canv.setFillColor(colors.red)
             else:
-                self.canv.setFillColor(colors.black)
+                self.canv.setFillColor(colors.HexColor("#333333"))
 
             self.canv.setFont(self.styles["Choice"].fontName, 10)
-            self.canv.drawString(x, y - 12, text)
-
-        y -= self.choices_height
-
-        # Draw explanation if showing answers
-        if self.with_answer and self.show_explanation and self.question.explanation:
-            y -= 4
-            self.canv.setFillColor(colors.gray)
-            p = Paragraph(f"→ {self.question.explanation}", self.styles["Hint"])
-            p.wrap(self.width - question_x, self.explanation_height)
-            p.drawOn(self.canv, question_x, y - self.explanation_height)
+            self.canv.drawString(x, y, f"{marker} {choice}")
 
 
 class ReorderFlowable(Flowable):
-    """Flowable for a single reorder question."""
+    """Reorder question with Design C style (whitespace-based)."""
 
     def __init__(
         self,
@@ -333,105 +280,48 @@ class ReorderFlowable(Flowable):
         self.styles = styles
         self.width = width
         self.with_answer = with_answer
-        self._calculate_height()
-
-    def _calculate_height(self):
-        """Calculate required height based on content."""
-        self.num_box_size = 36
-
-        # Prompt height
-        self.prompt_height = max(30, measure_para_height(
-            self.question.prompt, self.styles["Q"], self.width - 50, padding=4, min_h=24
-        ))
-
-        # Words display height
-        words_text = f"[ {self.question.get_words_display()} ]"
-        self.words_height = max(24, measure_para_height(
-            words_text, self.styles["QSmall"], self.width - 60, padding=4, min_h=20
-        ))
-
-        # Hint height
-        self.hint_height = 16 if self.question.hint else 0
-
-        # Answer line height
-        self.answer_line_height = 24
-
-        # Answer text height (if showing)
-        self.answer_height = 0
-        if self.with_answer:
-            self.answer_height = max(20, measure_para_height(
-                self.question.answer, self.styles["A"], self.width - 60, padding=4, min_h=18
-            ))
-
-        self.height = (
-            self.prompt_height + 8 +
-            self.words_height + 4 +
-            self.hint_height +
-            self.answer_line_height +
-            self.answer_height + 12
-        )
+        self.height = 76  # Generous whitespace
 
     def wrap(self, aw, ah):
         return self.width, self.height
 
     def draw(self):
-        y = self.height
+        y = self.height - 8
 
-        # Draw number box
-        num_box_x = 0
-        num_box_y = y - self.num_box_size - 4
-        self.canv.setStrokeColor(colors.blue)
-        self.canv.setLineWidth(0.5)
-        self.canv.roundRect(num_box_x, num_box_y, self.num_box_size, self.num_box_size, 6, stroke=1, fill=0)
-        self.canv.setFillColor(colors.black)
+        # Question number (muted, right-aligned)
+        self.canv.setFillColor(colors.HexColor("#666666"))
         self.canv.setFont(self.styles["Q"].fontName, 10)
-        num_text = str(self.question.number) if self.question.number else ""
-        self.canv.drawCentredString(
-            num_box_x + self.num_box_size / 2,
-            num_box_y + self.num_box_size / 2 - 4,
-            num_text
-        )
+        self.canv.drawRightString(28, y - 4, f"{self.question.number}.")
 
-        # Draw prompt (Japanese instruction)
-        content_x = self.num_box_size + 12
-        prompt_y = y - self.prompt_height
-        p = Paragraph(self.question.prompt, self.styles["Q"])
-        p.wrap(self.width - content_x, self.prompt_height)
-        p.drawOn(self.canv, content_x, prompt_y)
+        # Prompt (Japanese instruction)
+        self.canv.setFillColor(colors.black)
+        self.canv.setFont(self.styles["Q"].fontName, 11)
+        self.canv.drawString(36, y - 4, self.question.prompt)
 
-        y = prompt_y - 8
-
-        # Draw words to arrange
+        # Words to arrange (indented)
+        y -= 28
         words_text = f"[ {self.question.get_words_display()} ]"
-        self.canv.setFillColor(colors.HexColor("#444444"))
-        p = Paragraph(words_text, self.styles["QSmall"])
-        p.wrap(self.width - content_x, self.words_height)
-        p.drawOn(self.canv, content_x, y - self.words_height)
+        self.canv.setFillColor(colors.HexColor("#555555"))
+        self.canv.setFont(self.styles["QSmall"].fontName, 10)
+        self.canv.drawString(48, y, words_text)
 
-        y -= self.words_height + 4
-
-        # Draw hint if present
+        # Hint
         if self.question.hint:
-            self.canv.setFillColor(colors.gray)
-            hint_text = f"※ {self.question.hint} で始める"
+            self.canv.setFillColor(colors.HexColor("#888888"))
             self.canv.setFont(self.styles["Hint"].fontName, 9)
-            self.canv.drawString(content_x, y - 10, hint_text)
-            y -= self.hint_height
+            hint_x = 48 + self.canv.stringWidth(words_text, self.styles["QSmall"].fontName, 10) + 16
+            self.canv.drawString(hint_x, y, f"※{self.question.hint}で始める")
 
-        # Draw answer line or answer
+        # Answer line or answer
+        y -= 24
         if self.with_answer:
-            # Show the answer in red
-            y -= 8
-            p = Paragraph(self.question.answer, self.styles["A"])
-            p.wrap(self.width - content_x, self.answer_height)
-            p.drawOn(self.canv, content_x, y - self.answer_height)
+            self.canv.setFillColor(colors.red)
+            self.canv.setFont(self.styles["Q"].fontName, 11)
+            self.canv.drawString(48, y, self.question.answer)
         else:
-            # Draw blank line
-            y -= 4
             self.canv.setStrokeColor(colors.HexColor("#CCCCCC"))
             self.canv.setLineWidth(0.5)
-            line_y = y - 12
-            self.canv.line(content_x, line_y, self.width - 20, line_y)
+            self.canv.line(48, y, self.width - 60, y)
 
 
 # === Legacy PDF Builder (for backward compatibility) ===
@@ -631,6 +521,63 @@ def build_mixed_pdf(
     return buffer
 
 
+class VocabularyRowFlowable(Flowable):
+    """Vocabulary row with Design C style (whitespace-based, 2-column)."""
+
+    def __init__(self, left_q, right_q, styles, width: float, with_answer: bool = False, direction: str = "en-ja"):
+        super().__init__()
+        self.left_q = left_q
+        self.right_q = right_q
+        self.styles = styles
+        self.width = width
+        self.with_answer = with_answer
+        self.direction = direction
+        self.height = 44  # Generous vertical space
+        self.col_width = (width - 40) / 2
+
+    def wrap(self, aw, ah):
+        return self.width, self.height
+
+    def draw(self):
+        y = self.height - 10
+        font_name = self.styles["Q"].fontName
+
+        # Left question
+        if self.left_q:
+            self._draw_vocab_item(8, y, self.left_q, font_name)
+
+        # Right question
+        if self.right_q:
+            self._draw_vocab_item(self.col_width + 48, y, self.right_q, font_name)
+
+    def _draw_vocab_item(self, x, y, q, font_name):
+        # Number (muted, right-aligned)
+        self.canv.setFillColor(colors.HexColor("#666666"))
+        self.canv.setFont(font_name, 10)
+        num_text = f"{q.number}."
+        self.canv.drawRightString(x + 20, y, num_text)
+
+        # Word
+        self.canv.setFillColor(colors.black)
+        self.canv.setFont(font_name, 12)
+        word = q.get_question_text(self.direction)
+        self.canv.drawString(x + 28, y, word)
+
+        # Answer line or answer (indented)
+        line_x = x + 28
+        line_y = y - 22
+        line_width = self.col_width - 50
+
+        if self.with_answer:
+            self.canv.setFillColor(colors.red)
+            self.canv.setFont(font_name, 11)
+            self.canv.drawString(line_x, line_y + 2, q.get_answer_text(self.direction))
+        else:
+            self.canv.setStrokeColor(colors.HexColor("#CCCCCC"))
+            self.canv.setLineWidth(0.5)
+            self.canv.line(line_x, line_y, line_x + line_width, line_y)
+
+
 def _build_vocabulary_section(
     questions: List[VocabularyQuestion],
     styles,
@@ -638,72 +585,14 @@ def _build_vocabulary_section(
     with_answers: bool,
     direction: str = "en-ja",
 ) -> List:
-    """Build vocabulary section with 2-column layout."""
+    """Build vocabulary section with Design C style (whitespace-based, 2-column)."""
     story = []
 
-    gap = 12
-    num_width = 40
-    base_row_h = 40
-    padding = 8
-
-    remaining_width = usable_width - num_width * 2 - gap * 5
-    q_width = remaining_width * 0.5 / 2
-    a_width = remaining_width * 0.5 / 2
-
-    colWidths = [num_width, gap, q_width, gap, a_width,
-                 gap, num_width, gap, q_width, gap, a_width]
-
-    font_for_boxes = styles["Q"].fontName
-
-    data = []
-    row = []
-    pair = []
-
-    for i, q in enumerate(questions):
-        disp_no = q.number if q.number is not None else i + 1
-        q_text = q.get_question_text(direction)
-        ans_text = q.get_answer_text(direction) if with_answers else ""
-
-        h_q = measure_para_height(q_text, styles["Q"], q_width, padding=padding, min_h=base_row_h)
-        h_a = measure_para_height(ans_text, styles["A"], a_width, padding=padding, min_h=base_row_h) if with_answers else base_row_h
-        need_h = max(base_row_h, h_q, h_a)
-
-        pair.append((disp_no, q_text, ans_text, need_h))
-
-        if len(pair) == 2 or i == len(questions) - 1:
-            left = pair[0]
-            right = pair[1] if len(pair) == 2 else None
-            row_h = max(left[3], right[3] if right else base_row_h)
-
-            row.extend([
-                NumberBox(left[0], num_width, row_h, font_name=font_for_boxes), "",
-                RoundedBox(left[1], styles, q_width, row_h, padding=padding), "",
-                AnswerBox(styles, a_width, row_h, answer=left[2] if with_answers else None)
-            ])
-
-            if right:
-                row.extend([
-                    "", NumberBox(right[0], num_width, row_h, font_name=font_for_boxes), "",
-                    RoundedBox(right[1], styles, q_width, row_h, padding=padding), "",
-                    AnswerBox(styles, a_width, row_h, answer=right[2] if with_answers else None)
-                ])
-            else:
-                row.extend(["", "", "", "", ""])
-
-            data.append(row)
-            row = []
-            pair = []
-
-    if data:
-        table = Table(data, colWidths=colWidths, hAlign="CENTER")
-        table.setStyle(TableStyle([
-            ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
-            ("LEFTPADDING", (0, 0), (-1, -1), 0),
-            ("RIGHTPADDING", (0, 0), (-1, -1), 0),
-            ("TOPPADDING", (0, 0), (-1, -1), 0),
-            ("BOTTOMPADDING", (0, 0), (-1, -1), 0),
-        ]))
-        story.append(table)
+    for i in range(0, len(questions), 2):
+        left = questions[i]
+        right = questions[i + 1] if i + 1 < len(questions) else None
+        row = VocabularyRowFlowable(left, right, styles, usable_width, with_answers, direction)
+        story.append(row)
 
     return story
 
