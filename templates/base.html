@@ -157,6 +157,14 @@
       outline:none; box-shadow: var(--focus); border-color:var(--brand);
       background:#ffffff;
     }
+
+    /* ★追加：type=number だけ青いフォーカスリングを消す（境界線だけ控えめに変える） */
+    input[type="number"].input:focus{
+      outline: none;
+      box-shadow: none;
+      border-color: #ccc;
+    }
+
     .form-grid{
       display:grid; gap:14px;
       grid-template-columns: 1fr;
