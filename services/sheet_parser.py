@@ -77,6 +77,9 @@ class SheetParser:
         "prompt": ["prompt", "指示", "日本語", "問題"],
         "words": ["words", "語句", "並べ替え"],
         "hint": ["hint", "ヒント"],
+        "question_template": ["question_template", "問題テンプレート", "テンプレート"],
+        "prefix": ["prefix", "冒頭", "前置き"],
+        "suffix": ["suffix", "末尾", "後置き"],
         # Common
         "number": ["number", "no", "番号", "#"],
         "section": ["section", "セクション", "単元", "lesson", "レッスン"],
@@ -331,6 +334,9 @@ class SheetParser:
             words_str = get_str("words")
             answer = get_str("answer")
             hint = get_str("hint") or None
+            question_template = get_str("question_template") or None
+            prefix = get_str("prefix") or None
+            suffix = get_str("suffix") or None
 
             if not prompt and not words_str:
                 return None  # Skip empty rows
@@ -350,6 +356,9 @@ class SheetParser:
                 words=words,
                 answer=answer,
                 hint=hint,
+                question_template=question_template,
+                prefix=prefix,
+                suffix=suffix,
                 _source_row=row_num,
             )
 

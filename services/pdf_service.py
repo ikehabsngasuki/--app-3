@@ -266,7 +266,10 @@ class MultipleChoiceFlowable(Flowable):
 
 
 class ReorderFlowable(Flowable):
-    """Reorder question with Design C style (whitespace-based)."""
+    """Reorder question with Design C style (whitespace-based).
+    
+    Now supports question_template, prefix, suffix for complete question display.
+    """
 
     def __init__(
         self,
@@ -280,26 +283,36 @@ class ReorderFlowable(Flowable):
         self.styles = styles
         self.width = width
         self.with_answer = with_answer
-        self.height = 76  # Generous whitespace
+        # Increase height if question_template exists (needs more space)
+        self.height = 96 if question.question_template else 76
 
     def wrap(self, aw, ah):
         return self.width, self.height
 
     def draw(self):
         y = self.height - 8
+        font_name = self.styles["Q"].fontName
 
         # Question number (muted, right-aligned)
         self.canv.setFillColor(colors.HexColor("#666666"))
-        self.canv.setFont(self.styles["Q"].fontName, 10)
+        self.canv.setFont(font_name, 10)
         self.canv.drawRightString(28, y - 4, f"{self.question.number}.")
 
         # Prompt (Japanese instruction)
         self.canv.setFillColor(colors.black)
-        self.canv.setFont(self.styles["Q"].fontName, 11)
+        self.canv.setFont(font_name, 11)
         self.canv.drawString(36, y - 4, self.question.prompt)
 
+        # Question template (if available) - shows the sentence structure with blanks
+        if self.question.question_template:
+            y -= 22
+            question_display = self.question.get_question_display()
+            self.canv.setFillColor(colors.HexColor("#333333"))
+            self.canv.setFont(font_name, 10)
+            self.canv.drawString(48, y, question_display)
+
         # Words to arrange (indented)
-        y -= 28
+        y -= 24
         words_text = f"[ {self.question.get_words_display()} ]"
         self.canv.setFillColor(colors.HexColor("#555555"))
         self.canv.setFont(self.styles["QSmall"].fontName, 10)
@@ -315,9 +328,11 @@ class ReorderFlowable(Flowable):
         # Answer line or answer
         y -= 24
         if self.with_answer:
+            # Use get_full_answer() to include prefix/suffix
+            full_answer = self.question.get_full_answer()
             self.canv.setFillColor(colors.red)
-            self.canv.setFont(self.styles["Q"].fontName, 11)
-            self.canv.drawString(48, y, self.question.answer)
+            self.canv.setFont(font_name, 11)
+            self.canv.drawString(48, y, full_answer)
         else:
             self.canv.setStrokeColor(colors.HexColor("#CCCCCC"))
             self.canv.setLineWidth(0.5)
@@ -681,10 +696,11 @@ def build_answer_sheet_compact(
                     story.append(Paragraph(f"{num}. → {exp}", styles["Hint"]))
 
         elif q_type == QuestionType.REORDER:
-            # One answer per line
+            # One answer per line - use get_full_answer() for complete answer
             for q in type_questions:
                 num = q.number if q.number else "?"
-                story.append(Paragraph(f"{num}. {q.answer}", styles["Choice"]))
+                full_answer = q.get_full_answer()
+                story.append(Paragraph(f"{num}. {full_answer}", styles["Choice"]))
 
         story.append(Spacer(1, 12))
 

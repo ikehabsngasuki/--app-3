@@ -58,7 +58,7 @@ class QuestionType(Enum):
         type_specific = {
             QuestionType.VOCABULARY: [],
             QuestionType.MULTIPLE_CHOICE: ["explanation"],
-            QuestionType.REORDER: ["hint"],
+            QuestionType.REORDER: ["hint", "question_template", "prefix", "suffix"],
         }
 
         return common + type_specific.get(self, [])
@@ -153,6 +153,9 @@ class ReorderQuestion(BaseQuestion):
     words: List[str] = field(default_factory=list)  # Words to arrange
     answer: str = ""  # Correct sentence
     hint: Optional[str] = None  # Optional hint (e.g., first word)
+    question_template: Optional[str] = None  # Template with blanks e.g. "After ... (  ) (  ) ..."
+    prefix: Optional[str] = None  # Fixed prefix before blanks
+    suffix: Optional[str] = None  # Fixed suffix after blanks
 
     def __post_init__(self):
         self.type = QuestionType.REORDER
@@ -184,6 +187,59 @@ class ReorderQuestion(BaseQuestion):
     def get_words_display(self) -> str:
         """Get words as display string with separators."""
         return " / ".join(self.words)
+
+    def get_question_display(self) -> str:
+        """Get question text for display.
+        
+        Returns question_template if available, otherwise generates from prefix/suffix/words.
+        """
+        if self.question_template:
+            return self.question_template
+        
+        # Generate from prefix/suffix if available
+        prefix = self.prefix or ""
+        suffix = self.suffix or ""
+        
+        # Count words to determine number of blanks
+        num_blanks = len(self.words)
+        blanks = " (    ) " * num_blanks
+        
+        if prefix and suffix:
+            return f"{prefix} {blanks.strip()} {suffix}"
+        elif prefix:
+            return f"{prefix} {blanks.strip()}"
+        elif suffix:
+            return f"{blanks.strip()} {suffix}"
+        else:
+            return blanks.strip()
+
+    def get_full_answer(self) -> str:
+        """Get full answer with prefix and suffix.
+        
+        Returns answer with prefix/suffix if available, otherwise just answer.
+        """
+        prefix = self.prefix or ""
+        suffix = self.suffix or ""
+        
+        # Handle special case: "(なし)" means no prefix
+        if prefix == "(なし)":
+            prefix = ""
+        
+        parts = []
+        if prefix:
+            parts.append(prefix)
+        parts.append(self.answer)
+        
+        # Join with space, but avoid double spacing
+        result = " ".join(parts)
+        
+        # Add suffix (already included in answer typically, but check)
+        # The suffix is usually already part of the answer, so we skip adding it
+        # unless the answer doesn't end with it
+        if suffix and not result.rstrip().endswith(suffix.rstrip()):
+            result = result.rstrip() + " " + suffix
+        
+        return result.strip()
 
 
 # Type alias for any question type
