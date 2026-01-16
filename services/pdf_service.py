@@ -94,6 +94,20 @@ def build_styles(font_name: str):
         fontName=font_name, fontSize=9, leading=11,
         textColor=colors.gray,
     ))
+    # 問題文用スタイル（折り返し対応）
+    styles.add(ParagraphStyle(
+        name="QuestionText", parent=styles["Normal"],
+        fontName=font_name, fontSize=11, leading=14,
+        wordWrap='CJK', splitLongWords=1,
+        textColor=colors.black,
+    ))
+    # 問題文用スタイル（小さめ、折り返し対応）
+    styles.add(ParagraphStyle(
+        name="QuestionTextSmall", parent=styles["Normal"],
+        fontName=font_name, fontSize=10, leading=13,
+        wordWrap='CJK', splitLongWords=1,
+        textColor=colors.HexColor("#333333"),
+    ))
     return styles
 
 
@@ -113,6 +127,16 @@ def cell_to_text(v: Any, *, strip: bool = True, uppercase_bool: bool = False) ->
         return ("TRUE" if v else "FALSE") if uppercase_bool else str(v)
     s = str(v)
     return s.strip() if strip else s
+
+
+def escape_xml(text: str) -> str:
+    """Escape special XML characters for Paragraph."""
+    if not text:
+        return ""
+    return (text
+            .replace("&", "&amp;")
+            .replace("<", "&lt;")
+            .replace(">", "&gt;"))
 
 
 # === Flowable Classes ===
@@ -214,7 +238,10 @@ class SectionHeaderFlowable(Flowable):
 
 
 class MultipleChoiceFlowable(Flowable):
-    """Multiple choice question with Design C style (whitespace-based)."""
+    """Multiple choice question with Design C style (whitespace-based).
+    
+    Now supports text wrapping for long question text.
+    """
 
     def __init__(
         self,
@@ -230,7 +257,28 @@ class MultipleChoiceFlowable(Flowable):
         self.width = width
         self.with_answer = with_answer
         self.show_explanation = show_explanation
-        self.height = 64  # Generous whitespace
+        
+        # Calculate dynamic height based on question text length
+        self._question_para = None
+        self._question_height = 0
+        self._calc_height()
+
+    def _calc_height(self):
+        """Calculate height based on wrapped question text."""
+        # Create paragraph for question text (with number prefix)
+        question_text = escape_xml(self.question.question)
+        style = self.styles.get("QuestionText", self.styles["Q"])
+        
+        # Available width for question text (after number column)
+        text_width = self.width - 36  # 36 = space for number
+        
+        self._question_para = Paragraph(question_text, style)
+        _, h = self._question_para.wrap(text_width, 10 ** 6)
+        self._question_height = h
+        
+        # Base height: question text + choices row + padding
+        # Minimum 64 for short questions
+        self.height = max(64, int(h + 44))  # 44 = choices height + padding
 
     def wrap(self, aw, ah):
         return self.width, self.height
@@ -243,13 +291,12 @@ class MultipleChoiceFlowable(Flowable):
         self.canv.setFont(self.styles["Q"].fontName, 10)
         self.canv.drawRightString(28, y - 4, f"{self.question.number}.")
 
-        # Question text
-        self.canv.setFillColor(colors.black)
-        self.canv.setFont(self.styles["Q"].fontName, 11)
-        self.canv.drawString(36, y - 4, self.question.question)
+        # Question text using Paragraph (supports wrapping)
+        if self._question_para:
+            self._question_para.drawOn(self.canv, 36, y - self._question_height)
 
-        # Choices with spacing
-        y -= 36
+        # Choices with spacing (positioned below question text)
+        y = y - self._question_height - 16
         markers = ["①", "②", "③", "④"]
         choice_width = (self.width - 60) / 4
 
@@ -262,13 +309,15 @@ class MultipleChoiceFlowable(Flowable):
                 self.canv.setFillColor(colors.HexColor("#333333"))
 
             self.canv.setFont(self.styles["Choice"].fontName, 10)
-            self.canv.drawString(x, y, f"{marker} {choice}")
+            choice_text = escape_xml(str(choice))
+            self.canv.drawString(x, y, f"{marker} {choice_text}")
 
 
 class ReorderFlowable(Flowable):
     """Reorder question with Design C style (whitespace-based).
     
-    Now supports question_template, prefix, suffix for complete question display.
+    Now supports text wrapping for long prompts and question displays.
+    Supports question_template, prefix, suffix for complete question display.
     """
 
     def __init__(
@@ -283,9 +332,43 @@ class ReorderFlowable(Flowable):
         self.styles = styles
         self.width = width
         self.with_answer = with_answer
-        # Increase height if question has template info (needs more space)
-        # Use has_template_info() to check for question_template, prefix, or suffix
-        self.height = 96 if question.has_template_info() else 76
+        
+        # Paragraph objects for wrapped text
+        self._prompt_para = None
+        self._prompt_height = 0
+        self._template_para = None
+        self._template_height = 0
+        
+        # Calculate dynamic height
+        self._calc_height()
+
+    def _calc_height(self):
+        """Calculate height based on wrapped text content."""
+        text_width = self.width - 48  # Available width after indentation
+        
+        # Prompt paragraph
+        prompt_text = escape_xml(self.question.prompt)
+        prompt_style = self.styles.get("QuestionText", self.styles["Q"])
+        self._prompt_para = Paragraph(prompt_text, prompt_style)
+        _, self._prompt_height = self._prompt_para.wrap(text_width, 10 ** 6)
+        
+        # Question template paragraph (if exists)
+        if self.question.has_template_info():
+            template_text = escape_xml(self.question.get_question_display())
+            template_style = self.styles.get("QuestionTextSmall", self.styles["QSmall"])
+            self._template_para = Paragraph(template_text, template_style)
+            _, self._template_height = self._template_para.wrap(text_width - 12, 10 ** 6)
+        
+        # Calculate total height:
+        # prompt + (template if exists) + words line + answer line + padding
+        base_height = self._prompt_height + 8  # prompt + spacing
+        if self._template_para:
+            base_height += self._template_height + 6  # template + spacing
+        base_height += 24  # words line
+        base_height += 24  # answer line
+        base_height += 16  # top/bottom padding
+        
+        self.height = max(76, int(base_height))
 
     def wrap(self, aw, ah):
         return self.width, self.height
@@ -299,22 +382,19 @@ class ReorderFlowable(Flowable):
         self.canv.setFont(font_name, 10)
         self.canv.drawRightString(28, y - 4, f"{self.question.number}.")
 
-        # Prompt (Japanese instruction)
-        self.canv.setFillColor(colors.black)
-        self.canv.setFont(font_name, 11)
-        self.canv.drawString(36, y - 4, self.question.prompt)
+        # Prompt using Paragraph (supports wrapping)
+        if self._prompt_para:
+            self._prompt_para.drawOn(self.canv, 36, y - self._prompt_height)
+        
+        y = y - self._prompt_height - 8
 
-        # Question template display - show if has any template info
-        # (question_template, prefix, or suffix)
-        if self.question.has_template_info():
-            y -= 22
-            question_display = self.question.get_question_display()
-            self.canv.setFillColor(colors.HexColor("#333333"))
-            self.canv.setFont(font_name, 10)
-            self.canv.drawString(48, y, question_display)
+        # Question template display (if has template info)
+        if self._template_para:
+            self._template_para.drawOn(self.canv, 48, y - self._template_height)
+            y = y - self._template_height - 6
 
         # Words to arrange (indented)
-        y -= 24
+        y -= 16
         words_text = f"[ {self.question.get_words_display()} ]"
         self.canv.setFillColor(colors.HexColor("#555555"))
         self.canv.setFont(self.styles["QSmall"].fontName, 10)
@@ -325,13 +405,15 @@ class ReorderFlowable(Flowable):
             self.canv.setFillColor(colors.HexColor("#888888"))
             self.canv.setFont(self.styles["Hint"].fontName, 9)
             hint_x = 48 + self.canv.stringWidth(words_text, self.styles["QSmall"].fontName, 10) + 16
-            self.canv.drawString(hint_x, y, f"※{self.question.hint}で始める")
+            # Check if hint fits on same line
+            if hint_x + 100 < self.width:
+                self.canv.drawString(hint_x, y, f"※{self.question.hint}で始める")
 
         # Answer line or answer
         y -= 24
         if self.with_answer:
             # Use get_full_answer() to include prefix/suffix without duplication
-            full_answer = self.question.get_full_answer()
+            full_answer = escape_xml(self.question.get_full_answer())
             self.canv.setFillColor(colors.red)
             self.canv.setFont(font_name, 11)
             self.canv.drawString(48, y, full_answer)
