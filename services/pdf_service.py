@@ -283,8 +283,9 @@ class ReorderFlowable(Flowable):
         self.styles = styles
         self.width = width
         self.with_answer = with_answer
-        # Increase height if question_template exists (needs more space)
-        self.height = 96 if question.question_template else 76
+        # Increase height if question has template info (needs more space)
+        # Use has_template_info() to check for question_template, prefix, or suffix
+        self.height = 96 if question.has_template_info() else 76
 
     def wrap(self, aw, ah):
         return self.width, self.height
@@ -303,8 +304,9 @@ class ReorderFlowable(Flowable):
         self.canv.setFont(font_name, 11)
         self.canv.drawString(36, y - 4, self.question.prompt)
 
-        # Question template (if available) - shows the sentence structure with blanks
-        if self.question.question_template:
+        # Question template display - show if has any template info
+        # (question_template, prefix, or suffix)
+        if self.question.has_template_info():
             y -= 22
             question_display = self.question.get_question_display()
             self.canv.setFillColor(colors.HexColor("#333333"))
@@ -328,7 +330,7 @@ class ReorderFlowable(Flowable):
         # Answer line or answer
         y -= 24
         if self.with_answer:
-            # Use get_full_answer() to include prefix/suffix
+            # Use get_full_answer() to include prefix/suffix without duplication
             full_answer = self.question.get_full_answer()
             self.canv.setFillColor(colors.red)
             self.canv.setFont(font_name, 11)

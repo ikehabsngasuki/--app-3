@@ -188,6 +188,31 @@ class ReorderQuestion(BaseQuestion):
         """Get words as display string with separators."""
         return " / ".join(self.words)
 
+    def _normalize_prefix(self) -> str:
+        """Get normalized prefix (handles special markers like '(なし)')."""
+        prefix = (self.prefix or "").strip()
+        # "(なし)" or similar markers mean no prefix
+        if prefix.lower() in ("(なし)", "(none)", "なし", "none", ""):
+            return ""
+        return prefix
+
+    def _normalize_suffix(self) -> str:
+        """Get normalized suffix (handles special markers)."""
+        suffix = (self.suffix or "").strip()
+        if suffix.lower() in ("(なし)", "(none)", "なし", "none", ""):
+            return ""
+        return suffix
+
+    def has_template_info(self) -> bool:
+        """Check if question has template, prefix, or suffix info to display."""
+        if self.question_template:
+            return True
+        if self._normalize_prefix():
+            return True
+        if self._normalize_suffix():
+            return True
+        return False
+
     def get_question_display(self) -> str:
         """Get question text for display.
         
@@ -197,8 +222,8 @@ class ReorderQuestion(BaseQuestion):
             return self.question_template
         
         # Generate from prefix/suffix if available
-        prefix = self.prefix or ""
-        suffix = self.suffix or ""
+        prefix = self._normalize_prefix()
+        suffix = self._normalize_suffix()
         
         # Count words to determine number of blanks
         num_blanks = len(self.words)
@@ -217,27 +242,39 @@ class ReorderQuestion(BaseQuestion):
         """Get full answer with prefix and suffix.
         
         Returns answer with prefix/suffix if available, otherwise just answer.
+        Avoids duplication if prefix/suffix is already part of answer.
         """
-        prefix = self.prefix or ""
-        suffix = self.suffix or ""
+        answer = (self.answer or "").strip()
+        prefix = self._normalize_prefix()
+        suffix = self._normalize_suffix()
         
-        # Handle special case: "(なし)" means no prefix
-        if prefix == "(なし)":
-            prefix = ""
+        if not answer:
+            return ""
         
-        parts = []
+        result = answer
+        
+        # Add prefix only if answer doesn't already start with it
         if prefix:
-            parts.append(prefix)
-        parts.append(self.answer)
+            answer_lower = answer.lower()
+            prefix_lower = prefix.lower().rstrip()
+            
+            # Simple check: does answer start with prefix?
+            # This handles all cases: "prefix word", "prefix, word", "prefix. word", etc.
+            if not answer_lower.startswith(prefix_lower):
+                result = prefix + " " + result
         
-        # Join with space, but avoid double spacing
-        result = " ".join(parts)
-        
-        # Add suffix (already included in answer typically, but check)
-        # The suffix is usually already part of the answer, so we skip adding it
-        # unless the answer doesn't end with it
-        if suffix and not result.rstrip().endswith(suffix.rstrip()):
-            result = result.rstrip() + " " + suffix
+        # Add suffix only if answer doesn't already end with it
+        if suffix:
+            result_lower = result.lower().rstrip()
+            suffix_lower = suffix.lower().strip()
+            
+            # Remove trailing punctuation for comparison
+            result_stripped = result_lower.rstrip(".?!,;:")
+            suffix_stripped = suffix_lower.rstrip(".?!,;:")
+            
+            # Check if result ends with suffix (ignoring punctuation)
+            if suffix_stripped and not result_stripped.endswith(suffix_stripped):
+                result = result.rstrip() + " " + suffix
         
         return result.strip()
 
