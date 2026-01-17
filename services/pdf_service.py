@@ -108,6 +108,13 @@ def build_styles(font_name: str):
         wordWrap='CJK', splitLongWords=1,
         textColor=colors.HexColor("#333333"),
     ))
+    # 解答用スタイル（折り返し対応、赤色）
+    styles.add(ParagraphStyle(
+        name="AnswerText", parent=styles["Normal"],
+        fontName=font_name, fontSize=11, leading=14,
+        wordWrap='CJK', splitLongWords=1,
+        textColor=colors.red,
+    ))
     return styles
 
 
@@ -316,7 +323,7 @@ class MultipleChoiceFlowable(Flowable):
 class ReorderFlowable(Flowable):
     """Reorder question with Design C style (whitespace-based).
     
-    Now supports text wrapping for long prompts and question displays.
+    Now supports text wrapping for long prompts, question displays, and answers.
     Supports question_template, prefix, suffix for complete question display.
     """
 
@@ -338,6 +345,8 @@ class ReorderFlowable(Flowable):
         self._prompt_height = 0
         self._template_para = None
         self._template_height = 0
+        self._answer_para = None
+        self._answer_height = 0
         
         # Calculate dynamic height
         self._calc_height()
@@ -359,13 +368,26 @@ class ReorderFlowable(Flowable):
             self._template_para = Paragraph(template_text, template_style)
             _, self._template_height = self._template_para.wrap(text_width - 12, 10 ** 6)
         
+        # Answer paragraph (if with_answer, for long answers)
+        if self.with_answer:
+            answer_text = escape_xml(self.question.get_full_answer())
+            answer_style = self.styles.get("AnswerText", self.styles["A"])
+            self._answer_para = Paragraph(answer_text, answer_style)
+            _, self._answer_height = self._answer_para.wrap(text_width - 12, 10 ** 6)
+        
         # Calculate total height:
         # prompt + (template if exists) + words line + answer line + padding
         base_height = self._prompt_height + 8  # prompt + spacing
         if self._template_para:
             base_height += self._template_height + 6  # template + spacing
         base_height += 24  # words line
-        base_height += 24  # answer line
+        
+        # Answer height - use calculated height for long answers
+        if self.with_answer and self._answer_height > 14:
+            base_height += self._answer_height + 8
+        else:
+            base_height += 24  # default answer line height
+        
         base_height += 16  # top/bottom padding
         
         self.height = max(76, int(base_height))
@@ -412,11 +434,9 @@ class ReorderFlowable(Flowable):
         # Answer line or answer
         y -= 24
         if self.with_answer:
-            # Use get_full_answer() to include prefix/suffix without duplication
-            full_answer = escape_xml(self.question.get_full_answer())
-            self.canv.setFillColor(colors.red)
-            self.canv.setFont(font_name, 11)
-            self.canv.drawString(48, y, full_answer)
+            # Use Paragraph for answer to support wrapping of long answers
+            if self._answer_para:
+                self._answer_para.drawOn(self.canv, 48, y - self._answer_height + 14)
         else:
             self.canv.setStrokeColor(colors.HexColor("#CCCCCC"))
             self.canv.setLineWidth(0.5)
@@ -753,7 +773,7 @@ def build_answer_sheet_compact(
             answers = []
             for q in type_questions:
                 num = q.number if q.number else "?"
-                ans = q.get_answer_text(vocab_direction)
+                ans = escape_xml(q.get_answer_text(vocab_direction))
                 answers.append(f"{num}. {ans}")
 
             # Join with spaces, wrap at reasonable points
@@ -777,14 +797,16 @@ def build_answer_sheet_compact(
             if explanations:
                 story.append(Spacer(1, 8))
                 for num, exp in explanations:
-                    story.append(Paragraph(f"{num}. → {exp}", styles["Hint"]))
+                    exp_escaped = escape_xml(exp)
+                    story.append(Paragraph(f"{num}. → {exp_escaped}", styles["Hint"]))
 
         elif q_type == QuestionType.REORDER:
             # One answer per line - use get_full_answer() for complete answer
+            # Use QuestionText style for better wrapping of long answers
             for q in type_questions:
                 num = q.number if q.number else "?"
-                full_answer = q.get_full_answer()
-                story.append(Paragraph(f"{num}. {full_answer}", styles["Choice"]))
+                full_answer = escape_xml(q.get_full_answer())
+                story.append(Paragraph(f"{num}. {full_answer}", styles["QuestionText"]))
 
         story.append(Spacer(1, 12))
 
