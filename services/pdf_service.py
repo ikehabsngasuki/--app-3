@@ -429,7 +429,15 @@ class ReorderFlowable(Flowable):
             hint_x = 48 + self.canv.stringWidth(words_text, self.styles["QSmall"].fontName, 10) + 16
             # Check if hint fits on same line
             if hint_x + 100 < self.width:
-                self.canv.drawString(hint_x, y, f"※{self.question.hint}で始める")
+                # hintの形式を解析して適切に表示
+                hint_text = self.question.hint
+                if hint_text.startswith('補足='):
+                    hint_display = f"※補足: {hint_text[3:]}"
+                elif hint_text.startswith('不要='):
+                    hint_display = f"※不要: {hint_text[3:]}"
+                else:
+                    hint_display = f"※{hint_text}"
+                self.canv.drawString(hint_x, y, hint_display)
 
         # Answer line or answer
         y -= 24
