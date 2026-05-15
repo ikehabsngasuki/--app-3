@@ -1,0 +1,55 @@
+{% extends "base.html" %}
+{% block title %}ダウンロード | 英単語テストPDF{% endblock %}
+{% block content %}
+
+<div class="card" style="display:grid; gap:16px;">
+  <h2>ダウンロード</h2>
+
+  {% if items and items|length > 0 %}
+
+    <p class="label-desc">
+      生成されたPDFを以下から取得できます。
+      {% if use_r2 %}
+        署名URLは一定時間で失効します。
+      {% endif %}
+    </p>
+
+    <div class="stack" style="gap:14px;">
+      {% for it in items %}
+        <div class="card" style="box-shadow:none; border:1px dashed var(--line); padding:14px;">
+          <div style="font-weight:700; margin-bottom:8px;">第{{ it.idx }}部</div>
+
+          {% if use_r2 %}
+            <div style="display:flex; gap:10px; flex-wrap:wrap;">
+              {% if it.q_url %}
+                <a class="btn btn-primary" href="{{ it.q_url }}">問題PDFをダウンロード</a>
+              {% endif %}
+              {% if it.a_url %}
+                <a class="btn btn-primary" href="{{ it.a_url }}">解答PDFをダウンロード</a>
+              {% endif %}
+            </div>
+          {% else %}
+            <div style="display:flex; gap:10px; flex-wrap:wrap;">
+              {% if it.q %}
+                <a class="btn btn-outline" href="{{ url_for('download_file', filename=it.q) }}">問題PDFをダウンロード</a>
+              {% endif %}
+              {% if it.a %}
+                <a class="btn btn-outline" href="{{ url_for('download_file', filename=it.a) }}">解答PDFをダウンロード</a>
+              {% endif %}
+            </div>
+          {% endif %}
+        </div>
+      {% endfor %}
+    </div>
+
+    <div>
+      <a class="btn btn-outline" href="{{ url_for('make') }}" style="margin-top:6px;">別のPDFを作成する</a>
+    </div>
+
+  {% else %}
+    <p class="label-desc">まだ生成されたPDFがありません。まずは下のボタンから作成してください。</p>
+    <a class="btn btn-primary" href="{{ url_for('make') }}">PDFを作成する</a>
+  {% endif %}
+</div>
+
+{% endblock %}

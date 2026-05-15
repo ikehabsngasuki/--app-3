@@ -1,0 +1,216 @@
+# services/pdf_service.py
+import io
+import os
+from typing import Any
+import pandas as pd
+from reportlab.platypus import SimpleDocTemplate, Paragraph, Flowable, Table, TableStyle, Spacer
+from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
+from reportlab.lib import colors
+from reportlab.lib.pagesizes import A4
+from reportlab.pdfbase import pdfmetrics
+from reportlab.pdfbase.ttfonts import TTFont
+
+# === 段落の必要高さを計測するユーティリティ ===
+def measure_para_height(text: str, style, box_width: float, padding: int = 8, min_h: int = 40) -> int:
+    from reportlab.platypus import Paragraph
+    p = Paragraph(text or "", style)
+    _, h = p.wrap(box_width - 2*padding, 10**6)
+    return max(min_h, int(h + 2*padding))
+
+def register_fonts(fonts_dir: str):
+    font_name = "Helvetica"
+    candidates = [
+        "NotoSansJP-Regular.ttf",
+        "NotoSansCJKjp-Regular.otf",
+        "NotoSansJP-VariableFont_wght.ttf",
+    ]
+    selected = None
+    for fname in candidates:
+        p = os.path.join(fonts_dir, fname)
+        if os.path.exists(p):
+            selected = p
+            break
+
+    if selected:
+        try:
+            pdfmetrics.registerFont(TTFont("NotoSansJP", selected))
+            font_name = "NotoSansJP"
+            print(f"[Font] OK: {selected} を使用（内部名: {font_name}）")
+        except Exception as e:
+            print(f"[Font] 登録失敗: {selected}: {e}")
+            print("[Font] Helvetica にフォールバックします。")
+    else:
+        print("[Font] 候補フォントなし。Helvetica を使用。")
+    return font_name
+
+def build_styles(font_name: str):
+    styles = getSampleStyleSheet()
+    styles.add(ParagraphStyle(
+        name="TitleJP", parent=styles["Heading1"],
+        fontName=font_name, fontSize=18, leading=22, spaceAfter=8,
+    ))
+    styles.add(ParagraphStyle(
+        name="Q", parent=styles["Normal"],
+        fontName=font_name, fontSize=13, leading=15,
+        wordWrap='CJK', splitLongWords=1,
+    ))
+    styles.add(ParagraphStyle(
+        name="A", parent=styles["Normal"],
+        fontName=font_name, fontSize=10, leading=13, textColor=colors.red,
+        wordWrap='CJK', splitLongWords=1,
+    ))
+    return styles
+
+class NumberBox(Flowable):
+    def __init__(self, number, width=40, height=40, radius=6, font_name="Helvetica"):
+        super().__init__()
+        self.number = number
+        self.width = width
+        self.height = height
+        self.radius = radius
+        self.font_name = font_name
+    def wrap(self, aw, ah): return self.width, self.height
+    def draw(self):
+        self.canv.setStrokeColor(colors.blue)
+        self.canv.setLineWidth(0.5)
+        self.canv.roundRect(0, 0, self.width, self.height, self.radius, stroke=1, fill=0)
+        self.canv.setFillColor(colors.black)
+        self.canv.setFont(self.font_name, 10)
+        self.canv.drawCentredString(self.width/2, self.height/2 - 4, str(self.number))
+
+class RoundedBox(Flowable):
+    def __init__(self, text, styles, width=100, height=40, radius=6, padding=4):
+        super().__init__()
+        self.text=text; self.styles=styles; self.width=width; self.height=height; self.radius=radius; self.padding=padding
+    def wrap(self, aw, ah): return self.width, self.height
+    def draw(self):
+        self.canv.setStrokeColor(colors.blue); self.canv.setLineWidth(0.5)
+        self.canv.roundRect(0,0,self.width,self.height,self.radius, stroke=1, fill=0)
+        p = Paragraph(self.text, self.styles["Q"])
+        w,h = p.wrap(self.width-2*self.padding, self.height-2*self.padding)
+        p.drawOn(self.canv, self.padding, max(0,(self.height-h)/2))
+
+class AnswerBox(Flowable):
+    def __init__(self, styles, width=100, height=40, radius=6, answer=None):
+        super().__init__()
+        self.styles=styles; self.width=width; self.height=height; self.radius=radius; self.answer=answer
+    def wrap(self, aw, ah): return self.width, self.height
+    def draw(self):
+        self.canv.setStrokeColor(colors.blue); self.canv.setLineWidth(0.5)
+        self.canv.roundRect(0,0,self.width,self.height,self.radius, stroke=1, fill=0)
+        if self.answer:
+            p = Paragraph(self.answer, self.styles["A"])
+            w,h = p.wrap(self.width-8, self.height-8)
+            p.drawOn(self.canv, 4, max(0,(self.height-h)/2))
+
+# === セル値 → 表示文字列 変換（単一責務ヘルパー） ===
+def cell_to_text(v: Any, *, strip: bool = True, uppercase_bool: bool = False) -> str:
+    """
+    DataFrameのセル値をPDF表示用の文字列に正規化する。
+    - NaN/None は空文字
+    - bool は 'TRUE'/'FALSE'（uppercase_bool=Falseで 'True'/'False'）
+    - それ以外は str()。strip=True なら前後空白をトリム
+    """
+    if pd.isna(v):
+        return ""
+    if isinstance(v, bool):
+        return ("TRUE" if v else "FALSE") if uppercase_bool else str(v)
+    s = str(v)
+    return s.strip() if strip else s
+
+def build_pdf(
+    df: pd.DataFrame,
+    styles,
+    with_answers: bool = False,
+    *,
+    question_col: str = "word",     # 英和=word / 和英=meaning
+    answer_col: str = "meaning",    # 英和=meaning / 和英=word
+    title=None,
+):
+    buffer = io.BytesIO()
+    doc = SimpleDocTemplate(buffer, pagesize=A4, leftMargin=20, rightMargin=20, topMargin=20, bottomMargin=20)
+    story = []
+
+    # タイトル（任意）
+    if title:
+        story.append(Paragraph(title, styles.get("TitleJP", styles["Q"])))
+        story.append(Spacer(1, 6))  # 少し余白
+
+    PAGE_WIDTH, PAGE_HEIGHT = A4
+    usable_width = PAGE_WIDTH - doc.leftMargin - doc.rightMargin
+    gap = 12
+    num_width = 40
+    base_row_h = 40  # 最低行高
+
+    # 左右2セット（番号/問題/解答）
+    remaining_width = usable_width - num_width*2 - gap*5
+    q_width = remaining_width * 0.5 / 2
+    a_width = remaining_width * 0.5 / 2
+
+    colWidths = [num_width, gap, q_width, gap, a_width,
+                 gap, num_width, gap, q_width, gap, a_width]
+
+    font_for_boxes = styles["Q"].fontName
+    padding = 8  # 計測/描画で整合を取るため固定
+
+    data = []
+    row = []
+    pair = []  # 左右2問をまとめて高さ決定
+
+    for i, r in df.iterrows():
+        # 値の準備
+        try:
+            disp_no = int(r.get("number", ""))
+        except Exception:
+            disp_no = r.get("number", "")
+
+        # 出題/解答（ブール/NaNを安全に扱う）
+        q_text = cell_to_text(r.get(question_col, None))
+        ans_text = cell_to_text(r.get(answer_col, None)) if with_answers else ""
+
+        # 高さ計測
+        h_q = measure_para_height(q_text, styles["Q"], q_width, padding=padding, min_h=base_row_h)
+        h_a = measure_para_height(ans_text, styles["A"], a_width, padding=padding, min_h=base_row_h) if with_answers else base_row_h
+        need_h = max(base_row_h, h_q, h_a)
+
+        pair.append((disp_no, q_text, ans_text, need_h))
+
+        # 2件そろうか最終行で1段作成
+        if len(pair) == 2 or i == len(df) - 1:
+            left = pair[0]
+            right = pair[1] if len(pair) == 2 else None
+            row_h = max(left[3], right[3] if right else base_row_h)
+
+            # 左側
+            row.extend([
+                NumberBox(left[0], num_width, row_h, font_name=font_for_boxes), "",
+                RoundedBox(left[1], styles, q_width, row_h, padding=padding), "",
+                AnswerBox(styles, a_width, row_h, answer=left[2] if with_answers else None)
+            ])
+
+            # 右側（無ければ空埋め）
+            if right:
+                row.extend([
+                    "", NumberBox(right[0], num_width, row_h, font_name=font_for_boxes), "",
+                    RoundedBox(right[1], styles, q_width, row_h, padding=padding), "",
+                    AnswerBox(styles, a_width, row_h, answer=right[2] if with_answers else None)
+                ])
+            else:
+                row.extend(["", "", "", "", ""])
+
+            data.append(row)
+            row = []
+            pair = []
+
+    table = Table(data, colWidths=colWidths, hAlign="CENTER")
+    table.setStyle(TableStyle([
+        ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+        ("LEFTPADDING", (0, 0), (-1, -1), 0),
+        ("RIGHTPADDING", (0, 0), (-1, -1), 0),
+        ("TOPPADDING", (0, 0), (-1, -1), 0),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 0),
+    ]))
+    story.append(table)
+    doc.build(story)
+    buffer.seek(0)
+    return buffer

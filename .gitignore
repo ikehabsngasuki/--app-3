@@ -1,0 +1,57 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# Virtual env
+.venv/
+venv/
+env/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Jupyter (もし使っていれば)
+.ipynb_checkpoints/
+
+# Builds
+dist/
+build/
+
+# Local uploads (生成物やユーザーアップロード)
+uploads/*
+!uploads/.gitkeep
+*.xlsx
+*.xls
+*.csv
+*.tsv
+*.pdf
+
+#loacl generated
+generated/*
+!generated/.gitkeep
+generated_pdfs/
+
+# Logs
+*.log
+
+# IDE
+.vscode/
+.idea/
+
+# Cache
+*.cache
+
+# Local backup / work dirs
+bugit/
+*.bundle
+*.bak
+*.ini
+*:Zone.Identifier
+
+# Secrets
+.env
+.env.*
+!.env.example
